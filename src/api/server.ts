@@ -1,0 +1,12 @@
+import "dotenv/config";
+import { loadConfig } from "../config.js";
+import { HatchetWorkflowSubmitter } from "../services/workflow-submitter.js";
+import { buildApp } from "./app.js";
+
+async function main(): Promise<void> {
+  const config = loadConfig();
+  const app = await buildApp({ config, submitter: new HatchetWorkflowSubmitter(), logger: true });
+  await app.listen({ port: config.port, host: "127.0.0.1" });
+}
+
+main().catch((error: unknown) => { console.error("API failed:", error); process.exitCode = 1; });
