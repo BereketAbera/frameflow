@@ -1,12 +1,12 @@
-import { videoProcessingWorkflow, type VideoProcessingInput } from "../workflows/video-processing.js";
+import { objectVideoWorkflow, type ObjectVideoWorkflowInput } from "../workflows/object-video-processing.js";
 
 export interface WorkflowSubmitter {
-  submit(input: VideoProcessingInput): Promise<{ runId: string }>;
+  submit(input: ObjectVideoWorkflowInput): Promise<{ runId: string }>;
 }
 
 export class HatchetWorkflowSubmitter implements WorkflowSubmitter {
-  async submit(input: VideoProcessingInput): Promise<{ runId: string }> {
-    const run = await videoProcessingWorkflow.runNoWait(input, {
+  async submit(input: ObjectVideoWorkflowInput): Promise<{ runId: string }> {
+    const run = await objectVideoWorkflow.runNoWait(input, {
       additionalMetadata: { videoId: input.videoId },
     });
     return { runId: await run.getWorkflowRunId() };

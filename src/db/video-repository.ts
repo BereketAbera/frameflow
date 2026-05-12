@@ -15,6 +15,9 @@ export type VideoRecord = {
   updatedAt: string;
   processingStartedAt: string | null;
   processingCompletedAt: string | null;
+  sourceObjectKey: string | null; outputPrefix: string | null; masterPlaylistObjectKey: string | null;
+  uploadStatus: "pending" | "uploaded" | "expired"; uploadExpiresAt: string | null;
+  sourceEtag: string | null; sourceSizeBytes: number | null; declaredSizeBytes: number | null;
 };
 
 type VideoRow = {
@@ -22,10 +25,12 @@ type VideoRow = {
   hatchet_run_id: string | null; master_playlist_path: string | null;
   error_code: string | null; error_message: string | null; created_at: string; updated_at: string;
   processing_started_at: string | null; processing_completed_at: string | null;
+  source_object_key:string|null;output_prefix:string|null;master_playlist_object_key:string|null;upload_status:"pending"|"uploaded"|"expired";upload_expires_at:string|null;source_etag:string|null;source_size_bytes:number|null;declared_size_bytes:number|null;
 };
 
 const columns = `id, original_filename, source_path, status, hatchet_run_id, master_playlist_path,
-  error_code, error_message, created_at, updated_at, processing_started_at, processing_completed_at`;
+  error_code, error_message, created_at, updated_at, processing_started_at, processing_completed_at,
+  source_object_key, output_prefix, master_playlist_object_key, upload_status, upload_expires_at, source_etag, source_size_bytes, declared_size_bytes`;
 
 function mapRow(row: VideoRow): VideoRecord {
   return {
@@ -34,6 +39,8 @@ function mapRow(row: VideoRow): VideoRecord {
     errorCode: row.error_code, errorMessage: row.error_message, createdAt: row.created_at,
     updatedAt: row.updated_at, processingStartedAt: row.processing_started_at,
     processingCompletedAt: row.processing_completed_at,
+    sourceObjectKey:row.source_object_key,outputPrefix:row.output_prefix,masterPlaylistObjectKey:row.master_playlist_object_key,
+    uploadStatus:row.upload_status,uploadExpiresAt:row.upload_expires_at,sourceEtag:row.source_etag,sourceSizeBytes:row.source_size_bytes,declaredSizeBytes:row.declared_size_bytes,
   };
 }
 
@@ -54,6 +61,22 @@ export class VideoRepository {
       VALUES (?, ?, ?, 'uploading', ?, ?)`).run(input.id, input.originalFilename, input.sourcePath, timestamp, timestamp);
     return this.require(input.id);
   }
+
+  createPendingUpload(input:{id:string;originalFilename:string;sourceObjectKey:string;outputPrefix:string;sizeBytes:number;expiresAt:string}):VideoRecord{
+    const timestamp=this.now();this.database.prepare(`INSERT INTO videos
+      (id,original_filename,source_path,status,created_at,updated_at,source_object_key,output_prefix,upload_status,upload_expires_at,declared_size_bytes)
+      VALUES(?,?,?,'uploading',?,?,?,?, 'pending',?,?)`).run(input.id,input.originalFilename,"",timestamp,timestamp,input.sourceObjectKey,input.outputPrefix,input.expiresAt,input.sizeBytes);
+    return this.require(input.id);
+  }
+
+  markObjectUploaded(id:string,metadata:{etag?:string;sizeBytes:number}):VideoRecord{
+    const existing=this.require(id);if(existing.uploadStatus==="uploaded")return existing;
+    if(existing.uploadStatus!=="pending"||existing.status!=="uploading")throw new Error("Upload cannot be completed");
+    this.database.prepare(`UPDATE videos SET status='uploaded',upload_status='uploaded',source_etag=?,source_size_bytes=?,updated_at=? WHERE id=? AND upload_status='pending'`)
+      .run(metadata.etag??null,metadata.sizeBytes,this.now(),id);return this.require(id);
+  }
+
+  markUploadExpired(id:string):VideoRecord{const r=this.require(id);if(r.uploadStatus!=="pending")return r;this.database.prepare(`UPDATE videos SET upload_status='expired',status='failed',error_code='UPLOAD_EXPIRED',error_message='The upload authorization expired.',updated_at=?,processing_completed_at=? WHERE id=? AND upload_status='pending'`).run(this.now(),this.now(),id);return this.require(id);}
 
   get(id: string): VideoRecord | null {
     const row = this.database.prepare(`SELECT ${columns} FROM videos WHERE id = ?`).get(id) as VideoRow | undefined;
@@ -106,6 +129,8 @@ export class VideoRepository {
       processing_completed_at: this.now(), error_code: null, error_message: null,
     });
   }
+
+  markObjectCompleted(id:string,masterKey:string):VideoRecord{const r=this.markCompleted(id,"");if(r.status!=="completed")return r;this.database.prepare("UPDATE videos SET master_playlist_object_key=?,master_playlist_path=NULL WHERE id=?").run(masterKey,id);return this.require(id);}
 
   markFailed(id: string, errorCode: string, errorMessage: string): VideoRecord {
     const existing = this.require(id);
