@@ -7,6 +7,7 @@
     "api": "tsx src/api/server.ts",
     "db:init": "tsx src/init-db.ts",
     "reconcile": "tsx src/reconcile.ts",
+    "cleanup": "tsx src/cleanup.ts",
     "worker": "tsx src/worker.ts",
     "process": "tsx src/trigger.ts",
     "typecheck": "tsc --noEmit",
