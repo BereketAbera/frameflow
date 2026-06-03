@@ -18,6 +18,7 @@ export type VideoRecord = {
   sourceObjectKey: string | null; outputPrefix: string | null; masterPlaylistObjectKey: string | null;
   uploadStatus: "pending" | "uploaded" | "expired"; uploadExpiresAt: string | null;
   sourceEtag: string | null; sourceSizeBytes: number | null; declaredSizeBytes: number | null;
+  userId: string | null;
 };
 
 type VideoRow = {
@@ -25,12 +26,12 @@ type VideoRow = {
   hatchet_run_id: string | null; master_playlist_path: string | null;
   error_code: string | null; error_message: string | null; created_at: string; updated_at: string;
   processing_started_at: string | null; processing_completed_at: string | null;
-  source_object_key:string|null;output_prefix:string|null;master_playlist_object_key:string|null;upload_status:"pending"|"uploaded"|"expired";upload_expires_at:string|null;source_etag:string|null;source_size_bytes:number|null;declared_size_bytes:number|null;
+  source_object_key:string|null;output_prefix:string|null;master_playlist_object_key:string|null;upload_status:"pending"|"uploaded"|"expired";upload_expires_at:string|null;source_etag:string|null;source_size_bytes:number|null;declared_size_bytes:number|null;user_id:string|null;
 };
 
 const columns = `id, original_filename, source_path, status, hatchet_run_id, master_playlist_path,
   error_code, error_message, created_at, updated_at, processing_started_at, processing_completed_at,
-  source_object_key, output_prefix, master_playlist_object_key, upload_status, upload_expires_at, source_etag, source_size_bytes, declared_size_bytes`;
+  source_object_key, output_prefix, master_playlist_object_key, upload_status, upload_expires_at, source_etag, source_size_bytes, declared_size_bytes, user_id`;
 
 function mapRow(row: VideoRow): VideoRecord {
   return {
@@ -41,6 +42,7 @@ function mapRow(row: VideoRow): VideoRecord {
     processingCompletedAt: row.processing_completed_at,
     sourceObjectKey:row.source_object_key,outputPrefix:row.output_prefix,masterPlaylistObjectKey:row.master_playlist_object_key,
     uploadStatus:row.upload_status,uploadExpiresAt:row.upload_expires_at,sourceEtag:row.source_etag,sourceSizeBytes:row.source_size_bytes,declaredSizeBytes:row.declared_size_bytes,
+    userId: row.user_id,
   };
 }
 
@@ -62,10 +64,10 @@ export class VideoRepository {
     return this.require(input.id);
   }
 
-  createPendingUpload(input:{id:string;originalFilename:string;sourceObjectKey:string;outputPrefix:string;sizeBytes:number;expiresAt:string}):VideoRecord{
+  createPendingUpload(input:{id:string;userId?:string;originalFilename:string;sourceObjectKey:string;outputPrefix:string;sizeBytes:number;expiresAt:string}):VideoRecord{
     const timestamp=this.now();this.database.prepare(`INSERT INTO videos
-      (id,original_filename,source_path,status,created_at,updated_at,source_object_key,output_prefix,upload_status,upload_expires_at,declared_size_bytes)
-      VALUES(?,?,?,'uploading',?,?,?,?, 'pending',?,?)`).run(input.id,input.originalFilename,"",timestamp,timestamp,input.sourceObjectKey,input.outputPrefix,input.expiresAt,input.sizeBytes);
+      (id,user_id,original_filename,source_path,status,created_at,updated_at,source_object_key,output_prefix,upload_status,upload_expires_at,declared_size_bytes)
+      VALUES(?,?,?,?,'uploading',?,?,?,?, 'pending',?,?)`).run(input.id,input.userId??null,input.originalFilename,"",timestamp,timestamp,input.sourceObjectKey,input.outputPrefix,input.expiresAt,input.sizeBytes);
     return this.require(input.id);
   }
 
@@ -83,6 +85,11 @@ export class VideoRepository {
     return row ? mapRow(row) : null;
   }
 
+  getOwned(id: string, userId: string): VideoRecord | null {
+    const row = this.database.prepare(`SELECT ${columns} FROM videos WHERE id = ? AND user_id = ?`).get(id, userId) as VideoRow | undefined;
+    return row ? mapRow(row) : null;
+  }
+
   require(id: string): VideoRecord {
     const record = this.get(id);
     if (!record) throw new Error(`Video record not found: ${id}`);
@@ -92,6 +99,11 @@ export class VideoRepository {
   list(limit: number): VideoRecord[] {
     return (this.database.prepare(`SELECT ${columns} FROM videos ORDER BY created_at DESC, id DESC LIMIT ?`)
       .all(limit) as VideoRow[]).map(mapRow);
+  }
+
+  listOwned(userId: string, limit: number): VideoRecord[] {
+    return (this.database.prepare(`SELECT ${columns} FROM videos WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`)
+      .all(userId, limit) as VideoRow[]).map(mapRow);
   }
 
   listStaleActive(before: string): VideoRecord[] {

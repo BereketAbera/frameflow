@@ -17,7 +17,6 @@
     "@aws-sdk/client-s3": "^3.1127.0",
     "@aws-sdk/lib-storage": "^3.1127.0",
     "@aws-sdk/s3-request-presigner": "^3.1127.0",
-    "@fastify/multipart": "^10.1.1",
     "@hatchet-dev/typescript-sdk": "1.31.1",
     "dotenv": "^17.2.2",
     "fastify": "^5.12.3",
@@ -27,6 +26,6 @@
     "@types/node": "^24.3.1",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
-    "vitest": "^3.2.4"
+    "vitest": "^5.1.0"
   }
 }
