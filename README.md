@@ -1,11 +1,11 @@
-# Local video-processing POC
+# Frameflow — local video processing platform
 
-Phase 3 processes MP4 uploads into adaptive 360p/720p HLS using Hatchet and FFmpeg without requiring the API and worker to share a media filesystem. The API stores product status in SQLite; source and HLS media live in a private S3-compatible bucket (MinIO locally).
+Frameflow is a usable local video-processing product built from a three-phase infrastructure POC. It combines a polished responsive workspace, optional Supabase authentication, direct-to-object-storage uploads, Hatchet orchestration, and parallel FFmpeg transcoding into adaptive 360p/720p HLS.
 
 ## Architecture
 
 ```text
-browser -> API creates upload -> presigned PUT -> private object storage
+browser -> Supabase auth -> API creates upload -> presigned PUT -> private object storage
    |                                  |
    +-> confirms upload -> Hatchet Phase 3 DAG
                               | ffprobe + parallel FFmpeg in isolated scratch dirs
@@ -15,7 +15,7 @@ browser -> API creates upload -> presigned PUT -> private object storage
 browser <- API streams allowlisted private HLS objects <- object storage
 ```
 
-Hatchet is the workflow-execution source of truth. SQLite is the product-facing projection used for polling. Workflow payloads contain object keys only; video bytes are streamed through storage, and every task independently downloads its input into disposable scratch space. Phase 1 and the legacy Phase 2 workflow remain registered for compatibility.
+Hatchet is the workflow-execution source of truth. SQLite is the product-facing projection used for polling. Supabase owns identity; Frameflow verifies sessions and scopes every video read, stream, and upload to its owner. Workflow payloads contain object keys only, and every task independently downloads its input into disposable scratch space.
 
 ## Setup
 
@@ -26,11 +26,14 @@ cd /Users/bek/dev/pr/video-processing-poc
 npm install
 cp .env.example .env
 # Set HATCHET_CLIENT_TOKEN in .env
-docker compose -f docker-compose.minio.yml up -d
+npm run infra:up
 npm run db:init
+npm run doctor
 ```
 
 MinIO runs at `http://127.0.0.1:9000`, its console at `http://127.0.0.1:9001`, and the one-shot initializer creates a private bucket with development CORS rules. Credentials and the bucket can be overridden through the matching `S3_*` environment variables.
+
+If those ports are already occupied, set `MINIO_API_PORT=9100`, `MINIO_CONSOLE_PORT=9101`, and `S3_ENDPOINT=http://127.0.0.1:9100` in `.env` before `npm run infra:up`.
 
 Important configuration:
 
@@ -47,10 +50,23 @@ Important configuration:
 | `MAX_UPLOAD_BYTES` | `524288000` |
 | `STATUS_CALLBACK_BASE_URL` | `http://127.0.0.1:3000` |
 | `WORKER_CALLBACK_SECRET` | development-only value in `.env.example` |
+| `SUPABASE_URL` | unset; enables Supabase auth when paired with the anon key |
+| `SUPABASE_ANON_KEY` | unset; safe-to-expose Supabase public key |
 
 For AWS S3, omit `S3_ENDPOINT`, use the appropriate region and credentials, and normally set `S3_FORCE_PATH_STYLE=false`. The storage constructor rejects missing bucket, region, or credentials, while `/health/ready` verifies both SQLite and bucket access.
 
-## Run and upload
+## Authentication
+
+Authentication is deliberately optional for local development:
+
+- With `SUPABASE_URL` and `SUPABASE_ANON_KEY` unset, the app runs as one `local-development` user.
+- With both configured, the dashboard presents email/password sign-in and sign-up. The browser authenticates directly with Supabase, then the API verifies the access token and establishes an HTTP-only, same-site session cookie.
+- Videos are written with the authenticated Supabase user ID. List, detail, player status, and private HLS routes all enforce ownership. Cross-user lookups intentionally return 404.
+- Migration `003_video_ownership.sql` assigns existing local records to the local development user and adds an indexed owner column.
+
+Never use the Supabase service-role key in this application. Only the public anon key belongs in `SUPABASE_ANON_KEY`.
+
+## Run the product
 
 Start these in separate terminals:
 
@@ -59,7 +75,15 @@ npm run worker
 npm run api
 ```
 
-Open `http://127.0.0.1:3000/upload`, or perform the direct-upload protocol manually:
+Open `http://127.0.0.1:3000`. The responsive workspace provides:
+
+- drag-and-drop MP4 selection and direct-upload progress;
+- live service health and video counts;
+- an owner-scoped recent-video library;
+- live queued, processing, completed, and failed states;
+- a dedicated adaptive HLS player with pipeline progress.
+
+The raw protocol remains available for API clients. With Supabase enabled, establish a session or supply a bearer token:
 
 ```bash
 curl -sS -X POST http://127.0.0.1:3000/videos/uploads \
@@ -75,7 +99,7 @@ curl http://127.0.0.1:3000/videos/<videoId>
 
 The declared size must exactly match the uploaded object's size. Confirmation is idempotent and concurrent confirmations coalesce to one Hatchet submission. The previous multipart `POST /videos` upload is intentionally removed; clients must use the presigned flow.
 
-Other routes are `GET /videos`, `GET /player/{videoId}`, `GET /streams/{videoId}/master.m3u8`, `GET /health/live`, and `GET /health/ready`.
+Other routes are `GET /videos`, `GET /player/{videoId}`, `GET /streams/{videoId}/master.m3u8`, `GET /auth/me`, `GET /health/live`, and `GET /health/ready`.
 
 The bucket remains private. Playback goes through the API, which requires a completed record and only serves the master, known rendition playlists, and numbered transport-stream segments under that video's published prefix.
 
@@ -92,7 +116,7 @@ Renditions upload to a run-specific staging prefix. Publication copies rendition
 
 ## Database and migration behavior
 
-Migration `002_object_storage.sql` adds source/output keys, upload lifecycle, expiry, ETag, and actual/declared size fields without modifying migration 001. New records never use persistent local media paths. Existing Phase 2 rows retain their local paths and continue through legacy reconciliation; they are not silently converted because no object upload can be inferred safely.
+Migration `002_object_storage.sql` adds source/output keys, upload lifecycle, expiry, ETag, and actual/declared size fields. Migration `003_video_ownership.sql` adds user ownership. Existing migrations remain immutable. New records never use persistent local media paths; older Phase 2 rows retain their local paths for legacy reconciliation.
 
 Status transitions remain monotonic: `uploading -> uploaded -> queued -> processing -> completed|failed`, with expired uploads becoming failed.
 
@@ -111,12 +135,12 @@ Cleanup expires abandoned presigned uploads, removes staging prefixes belonging 
 ## Verification
 
 ```bash
-npm run typecheck
-npm test
+npm run verify
+npm audit
 npm run db:init
 ```
 
-Tests use fake object storage and temporary databases/directories. They cover direct-upload validation and idempotency, private HLS allowlisting, storage readiness, independent worker scratch, bounded staged uploads, master-last publication, reconciliation, cleanup dry-run/apply, terminal transitions, and playable FFmpeg output.
+The 16 automated tests use fake object storage and temporary databases/directories. They cover Supabase session handling and cross-user isolation, direct-upload validation and idempotency, private HLS allowlisting, storage readiness, independent worker scratch, bounded staged uploads, master-last publication, reconciliation, cleanup, terminal transitions, and playable FFmpeg output.
 
 To prove filesystem separation, start API and worker with distinct media and scratch directories; only status callbacks and object storage connect them:
 
@@ -129,9 +153,19 @@ For the retry demonstration, start the API with `FORCE_720P_FAILURE_ONCE=true`; 
 
 ## Limits
 
-- There is no end-user authentication or ownership model.
 - SQLite is still a single-node API persistence choice, although workers do not access it or share media directories.
 - The FFmpeg semaphore is per worker process, not distributed.
 - Stronger content inspection, object lifecycle policies, multipart-resume UX, CDN delivery, and distributed admission control remain future work.
 - hls.js is loaded from jsDelivr when native HLS is unavailable.
 - A crash after Hatchet accepts a run but before the API records its run ID remains ambiguous; reconciliation deliberately does not guess through it.
+
+## Delivery history
+
+The Git history intentionally demonstrates product evolution rather than one large import:
+
+1. Phase 1 established the Hatchet/FFmpeg DAG and retry behavior.
+2. Phase 2 added the Fastify API, SQLite status projection, safe HLS proxy, and reconciliation.
+3. Phase 3 removed shared-media filesystem coupling with S3-compatible storage, direct uploads, isolated scratch space, staging publication, and cleanup.
+4. The product layer added Supabase identity, per-user authorization, a complete upload workspace, processing UX, and polished playback.
+
+Run `git log --oneline --reverse` to walk through the implementation story.

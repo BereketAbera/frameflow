@@ -5,13 +5,18 @@
   "type": "module",
   "scripts": {
     "api": "tsx src/api/server.ts",
+    "start": "npm run api",
+    "doctor": "tsx src/doctor.ts",
+    "infra:up": "docker compose -f docker-compose.minio.yml up -d",
+    "infra:down": "docker compose -f docker-compose.minio.yml down",
     "db:init": "tsx src/init-db.ts",
     "reconcile": "tsx src/reconcile.ts",
     "cleanup": "tsx src/cleanup.ts",
     "worker": "tsx src/worker.ts",
     "process": "tsx src/trigger.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "verify": "npm run typecheck && npm test"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1127.0",
