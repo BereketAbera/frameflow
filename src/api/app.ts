@@ -8,9 +8,7 @@ import type { WorkflowSubmitter } from "../services/workflow-submitter.js";
 import { tokenFromRequest, type AuthUser, type AuthVerifier } from "../services/auth.js";
 import type { ObjectStorage } from "../storage/object-storage.js";
 import { videoObjectKeys } from "../storage/object-storage.js";
-import { dashboardHtml } from "./dashboard.js";
 import { ApiError } from "./errors.js";
-import { playerHtml } from "./player.js";
 
 export type AppDependencies = { config: AppConfig; submitter: WorkflowSubmitter; storage: ObjectStorage; authVerifier?: AuthVerifier; logger?: boolean };
 const completionLocks = new Map<string, Promise<VideoRecord>>();
@@ -58,8 +56,6 @@ export async function buildApp({ config, submitter, storage, authVerifier, logge
     return user;
   };
 
-  app.get("/", async (_request, reply) => reply.type("text/html").send(dashboardHtml(config.maxUploadBytes)));
-  app.get("/upload", async (_request, reply) => reply.redirect("/"));
   app.get("/auth/config", async () => ({ enabled: Boolean(config.supabase), url: config.supabase?.url, anonKey: config.supabase?.anonKey }));
   app.get("/auth/me", async (request) => requireUser(request));
   app.post("/auth/session", async (request, reply) => {
@@ -161,10 +157,6 @@ export async function buildApp({ config, submitter, storage, authVerifier, logge
     } catch {
       throw new ApiError(404, "STREAM_FILE_NOT_FOUND", "Stream file not found.");
     }
-  });
-
-  app.get<{ Params: { videoId: string } }>("/player/:videoId", async (request, reply) => {
-    return reply.type("text/html").send(playerHtml(request.params.videoId));
   });
 
   app.post<{ Params: { id: string; event: string }; Body: { masterPlaylistObjectKey?: string; code?: string; message?: string } }>("/internal/videos/:id/:event", async (request) => {

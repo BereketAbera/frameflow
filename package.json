@@ -4,8 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "next dev --webpack",
+    "build": "next build --webpack",
+    "start": "next start",
     "api": "tsx src/api/server.ts",
-    "start": "npm run api",
     "doctor": "tsx src/doctor.ts",
     "infra:up": "docker compose -f docker-compose.minio.yml up -d",
     "infra:down": "docker compose -f docker-compose.minio.yml down",
@@ -16,19 +18,31 @@
     "process": "tsx src/trigger.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "verify": "npm run typecheck && npm test"
+    "verify": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1127.0",
     "@aws-sdk/lib-storage": "^3.1127.0",
     "@aws-sdk/s3-request-presigner": "^3.1127.0",
     "@hatchet-dev/typescript-sdk": "1.31.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "dotenv": "^17.2.2",
     "fastify": "^5.12.3",
+    "hls.js": "^1.7.4",
+    "lucide-react": "^1.67.0",
+    "next": "^16.4.4",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tailwind-merge": "^3.7.0",
     "zod": "^4.1.5"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.4",
     "@types/node": "^24.3.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "tailwindcss": "^4.3.4",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
     "vitest": "^5.1.0"

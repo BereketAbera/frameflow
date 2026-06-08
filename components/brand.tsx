@@ -1,0 +1,2 @@
+import Link from"next/link";import{Play}from"lucide-react";
+export function Brand({inverse=false}:{inverse?:boolean}){return <Link href="/" className="flex items-center gap-2.5 text-xl font-bold tracking-tight"><span className={inverse?"grid size-9 place-items-center rounded-lg bg-white text-primary":"grid size-9 place-items-center rounded-lg bg-primary text-primary-foreground"}><Play className="size-4 fill-current"/></span>Frameflow</Link>}

@@ -25,7 +25,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
   if (Boolean(env.SUPABASE_URL) !== Boolean(env.SUPABASE_ANON_KEY)) throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY must be configured together");
   const dataDir = path.resolve(cwd, "data");
   return {
-    port: positiveInteger(env.PORT, 3000, "PORT"),
+    port: positiveInteger(env.PORT, 4000, "PORT"),
     databasePath: path.resolve(env.DATABASE_PATH ?? path.join(dataDir, "app.db")),
     uploadDir: path.resolve(env.UPLOAD_DIR ?? path.join(dataDir, "uploads")),
     outputDir: path.resolve(env.OUTPUT_DIR ?? path.join(dataDir, "output")),
