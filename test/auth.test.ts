@@ -6,6 +6,7 @@ import { buildApp } from "../src/api/app.js";
 import type { AppConfig } from "../src/config.js";
 import type { AuthVerifier } from "../src/services/auth.js";
 import { FakeObjectStorage } from "../src/storage/fake-storage.js";
+import { VideoRepository } from "../src/db/video-repository.js";
 
 describe("Supabase-backed API ownership", () => {
   let root = "";
@@ -37,5 +38,10 @@ describe("Supabase-backed API ownership", () => {
     expect(mine.json().videos[0].originalFilename).toBe("mine.mp4");
     expect(theirs.json().videos).toHaveLength(0);
     expect((await app.inject({ method: "GET", url: `/videos/${id}`, headers: { authorization: "Bearer user-b" } })).statusCode).toBe(404);
+    const repository = new VideoRepository(config.databasePath);
+    repository.markFailed(id, "TEST_FAILURE", "Terminal test record");
+    repository.close();
+    expect((await app.inject({ method: "DELETE", url: `/videos/${id}`, headers: { authorization: "Bearer user-b" } })).statusCode).toBe(404);
+    expect((await app.inject({ method: "DELETE", url: `/videos/${id}`, headers: { authorization: "Bearer user-a" } })).statusCode).toBe(204);
   });
 });

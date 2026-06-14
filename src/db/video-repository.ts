@@ -106,6 +106,10 @@ export class VideoRepository {
       .all(userId, limit) as VideoRow[]).map(mapRow);
   }
 
+  deleteOwned(id: string, userId: string): boolean {
+    return this.database.prepare("DELETE FROM videos WHERE id = ? AND user_id = ?").run(id, userId).changes === 1;
+  }
+
   listStaleActive(before: string): VideoRecord[] {
     return (this.database.prepare(`SELECT ${columns} FROM videos
       WHERE status IN ('queued', 'processing') AND updated_at < ? ORDER BY updated_at ASC`).all(before) as VideoRow[]).map(mapRow);
