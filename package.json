@@ -15,6 +15,7 @@
     "reconcile": "tsx src/reconcile.ts",
     "cleanup": "tsx src/cleanup.ts",
     "worker": "tsx src/worker.ts",
+    "e2e:local": "tsx scripts/e2e-local.ts",
     "process": "tsx src/trigger.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
