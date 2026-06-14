@@ -87,6 +87,9 @@ Open `http://127.0.0.1:3000`. Next.js serves the product UI and rewrites its sam
 - an owner-scoped recent-video library;
 - live queued, processing, completed, and failed states;
 - a dedicated adaptive HLS player with pipeline progress.
+- search and status filters for the video library;
+- safe terminal-video deletion, including private object cleanup;
+- a live system diagnostics page for the API, database, storage, and workflow configuration.
 
 The raw protocol remains available for API clients. With Supabase enabled, establish a session or supply a bearer token:
 
@@ -103,6 +106,14 @@ curl http://127.0.0.1:4000/videos/<videoId>
 ```
 
 The declared size must exactly match the uploaded object's size. Confirmation is idempotent and concurrent confirmations coalesce to one Hatchet submission. The previous multipart `POST /videos` upload is intentionally removed; clients must use the presigned flow.
+
+Run the reusable end-to-end smoke test while the API, worker, Next.js, and MinIO are running:
+
+```bash
+npm run e2e:local -- input/sample.mp4
+```
+
+It creates a presigned upload, transfers the source, submits the Hatchet workflow, polls through processing, and verifies the published HLS manifest before printing the player URL.
 
 Other API routes are `GET /videos`, `GET /streams/{videoId}/master.m3u8`, `GET /auth/me`, `GET /health/live`, and `GET /health/ready`. The React routes are `/` and `/player/[id]`.
 
@@ -145,7 +156,7 @@ npm audit
 npm run db:init
 ```
 
-The 16 automated tests use fake object storage and temporary databases/directories. They cover Supabase session handling and cross-user isolation, direct-upload validation and idempotency, private HLS allowlisting, storage readiness, independent worker scratch, bounded staged uploads, master-last publication, reconciliation, cleanup, terminal transitions, and playable FFmpeg output.
+The automated tests use fake object storage and temporary databases/directories. They cover Supabase session handling, cross-user isolation and deletion, direct-upload validation and idempotency, private HLS allowlisting, storage readiness, independent worker scratch, bounded staged uploads, master-last publication, reconciliation, cleanup, terminal transitions, and playable FFmpeg output.
 
 To prove filesystem separation, start API and worker with distinct media and scratch directories; only status callbacks and object storage connect them:
 
