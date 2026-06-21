@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { Activity, ArrowUp, ChevronRight, Play, RefreshCw, Search, Trash2, Upload, X } from "lucide-react";
 import { AuthGate, type AuthConfig } from "@/components/auth-gate";
@@ -10,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import { Landing } from "@/components/landing";
 
 type User = { id: string; email?: string };
 type Video = { id: string; originalFilename: string; status: string; sizeBytes?: number; createdAt: string; error?: { message: string } };
@@ -20,6 +22,7 @@ const maxUploadBytes = 500 * 1024 * 1024;
 const formatSize = (bytes?: number) => bytes ? `${(bytes / 1048576).toFixed(1)} MB` : "—";
 
 export default function Workspace() {
+  const pathname = usePathname();
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [videos, setVideos] = useState<Video[]>([]);
@@ -138,6 +141,7 @@ export default function Workspace() {
     setNotice(`${video.originalFilename} was deleted.`);
   }
 
+  if (pathname === "/") return <Landing />;
   if (!config) return <div className="grid min-h-screen place-items-center text-muted-foreground">Loading Frameflow…</div>;
   if (config.enabled && !user) return <AuthGate config={config} onAuthenticated={setUser} />;
   if (!user) return null;
