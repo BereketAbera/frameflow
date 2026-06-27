@@ -49,12 +49,16 @@ export async function buildApp({ config, submitter, storage, authVerifier, logge
     return reply.status(500).send({ error: { code: "INTERNAL_ERROR", message: "The request could not be completed." } });
   });
 
-  const requireUser = async (request: FastifyRequest): Promise<AuthUser> => {
+  const optionalUser = async (request: FastifyRequest): Promise<AuthUser | null> => {
     if (!config.supabase) return { id: "local-development", email: "local@video.local" };
     const token = tokenFromRequest({ authorization: request.headers.authorization, cookie: request.headers.cookie });
-    if (!token || !authVerifier) throw new ApiError(401, "UNAUTHENTICATED", "Sign in to continue.");
+    if (!token || !authVerifier) return null;
     const user = await authVerifier.verify(token);
-    if (!user) throw new ApiError(401, "UNAUTHENTICATED", "Your session is invalid or expired.");
+    return user ?? null;
+  };
+  const requireUser = async (request: FastifyRequest): Promise<AuthUser> => {
+    const user = await optionalUser(request);
+    if (!user) throw new ApiError(401, "UNAUTHENTICATED", "Sign in to continue.");
     return user;
   };
 
@@ -66,7 +70,7 @@ export async function buildApp({ config, submitter, storage, authVerifier, logge
     if (!token || !authVerifier) throw new ApiError(401, "UNAUTHENTICATED", "A valid Supabase access token is required.");
     const user = await authVerifier.verify(token);
     if (!user) throw new ApiError(401, "UNAUTHENTICATED", "Your session is invalid or expired.");
-    reply.header("set-cookie", `vp_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=3600`);
+    reply.header("set-cookie", `vp_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=3600${process.env.NODE_ENV === "production" ? "; Secure" : ""}`);
     return { user };
   });
   app.delete("/auth/session", async (_request, reply) => {
@@ -76,20 +80,25 @@ export async function buildApp({ config, submitter, storage, authVerifier, logge
 
   app.get("/social/feed", async () => ({ videos: social.publicVideos(), featured: social.featured() }));
   app.get<{ Params:{id:string} }>("/social/videos/:id", async (request) => {
-    const user = await requireUser(request);
-    const video = social.detail(request.params.id, user.id);
+    const user = await optionalUser(request);
+    const video = social.detail(request.params.id, user?.id);
     if (!video) throw new ApiError(404,"VIDEO_NOT_FOUND","Video not found.");
     return { video, comments: social.comments(request.params.id) };
   });
   app.patch<{ Params:{id:string};Body:{title?:string;description?:string;tags?:string;visibility?:string} }>("/social/videos/:id",async(request)=>{const user=await requireUser(request),body=request.body??{};if(!body.title?.trim()||!['public','unlisted','private'].includes(body.visibility??''))throw new ApiError(400,'INVALID_VIDEO_METADATA','Title and visibility are required.');if(!social.updateVideo(request.params.id,user.id,{title:body.title.trim().slice(0,120),description:(body.description??'').trim().slice(0,2000),tags:(body.tags??'').trim().slice(0,300),visibility:body.visibility!}))throw new ApiError(404,'VIDEO_NOT_FOUND','Video not found.');return social.detail(request.params.id,user.id);});
-  app.post<{Params:{id:string}}>("/social/videos/:id/view",async(request)=>{social.view(request.params.id);return{viewed:true};});
-  app.post<{Params:{id:string}}>("/social/videos/:id/like",async(request)=>{const user=await requireUser(request);return{liked:social.toggle('video_likes',request.params.id,user.id)};});
-  app.post<{Params:{id:string}}>("/social/videos/:id/save",async(request)=>{const user=await requireUser(request);return{saved:social.toggle('saved_videos',request.params.id,user.id)};});
-  app.post<{Params:{id:string};Body:{body?:string;parentId?:string}}>("/social/videos/:id/comments",async(request,reply)=>{const user=await requireUser(request),body=request.body?.body?.trim();if(!body||body.length>1000)throw new ApiError(400,'INVALID_COMMENT','Comment must be between 1 and 1000 characters.');social.ensureProfile(user.id,user.email);const id=social.addComment(request.params.id,user.id,body,request.body.parentId);return reply.status(201).send({id});});
-  app.get<{Params:{id:string}}>("/social/profiles/:id",async(request)=>social.profile(request.params.id));
+  app.post<{Params:{id:string}}>("/social/videos/:id/view",async(request)=>{const user=await optionalUser(request);if(!social.canAccess(request.params.id,user?.id))throw new ApiError(404,'VIDEO_NOT_FOUND','Video not found.');social.view(request.params.id);return{viewed:true};});
+  app.post<{Params:{id:string}}>("/social/videos/:id/like",async(request)=>{const user=await requireUser(request),liked=social.toggle('video_likes',request.params.id,user.id);if(liked===null)throw new ApiError(404,'VIDEO_NOT_FOUND','Video not found.');const owner=social.owner(request.params.id);if(liked&&owner&&owner!==user.id)social.notify(owner,'like','Someone liked your video.',`/watch/${request.params.id}`);return{liked};});
+  app.post<{Params:{id:string}}>("/social/videos/:id/save",async(request)=>{const user=await requireUser(request),saved=social.toggle('saved_videos',request.params.id,user.id);if(saved===null)throw new ApiError(404,'VIDEO_NOT_FOUND','Video not found.');return{saved};});
+  app.post<{Params:{id:string};Body:{body?:string;parentId?:string}}>("/social/videos/:id/comments",async(request,reply)=>{const user=await requireUser(request),body=request.body?.body?.trim();if(!body||body.length>1000)throw new ApiError(400,'INVALID_COMMENT','Comment must be between 1 and 1000 characters.');social.ensureProfile(user.id,user.email);const id=social.addComment(request.params.id,user.id,body,request.body.parentId);if(!id)throw new ApiError(404,'VIDEO_OR_PARENT_NOT_FOUND','Video or parent comment not found.');const owner=social.owner(request.params.id);if(owner&&owner!==user.id)social.notify(owner,'comment','Someone commented on your video.',`/watch/${request.params.id}`);return reply.status(201).send({id});});
+  app.patch<{Params:{id:string};Body:{body?:string}}>("/social/comments/:id",async(request)=>{const user=await requireUser(request),body=request.body?.body?.trim();if(!body||body.length>1000)throw new ApiError(400,'INVALID_COMMENT','Comment must be between 1 and 1000 characters.');if(!social.updateComment(request.params.id,user.id,body))throw new ApiError(404,'COMMENT_NOT_FOUND','Comment not found.');return{updated:true};});
+  app.delete<{Params:{id:string}}>("/social/comments/:id",async(request,reply)=>{const user=await requireUser(request);if(!social.deleteComment(request.params.id,user.id))throw new ApiError(404,'COMMENT_NOT_FOUND','Comment not found.');return reply.status(204).send();});
+  app.get<{Params:{id:string}}>("/social/profiles/:id",async(request)=>{const profile=social.profile(request.params.id);if(!profile)throw new ApiError(404,'PROFILE_NOT_FOUND','Creator not found.');return profile;});
   app.get("/social/playlists",async(request)=>{const user=await requireUser(request);return{playlists:social.playlists(user.id)};});
   app.post<{Body:{title?:string}}>("/social/playlists",async(request,reply)=>{const user=await requireUser(request),title=request.body?.title?.trim();if(!title)throw new ApiError(400,'INVALID_TITLE','Playlist title is required.');return reply.status(201).send({id:social.createPlaylist(user.id,title.slice(0,80))});});
+  app.post<{Params:{id:string;videoId:string}}>("/social/playlists/:id/videos/:videoId",async(request,reply)=>{const user=await requireUser(request);if(!social.addToPlaylist(request.params.id,request.params.videoId,user.id))throw new ApiError(404,'PLAYLIST_OR_VIDEO_NOT_FOUND','Playlist or video not found.');return reply.status(204).send();});
+  app.get("/social/saved",async(request)=>{const user=await requireUser(request);return{videos:social.saved(user.id)};});
   app.get("/social/notifications",async(request)=>{const user=await requireUser(request);return{notifications:social.notifications(user.id)};});
+  app.post("/social/notifications/read",async(request)=>{const user=await requireUser(request);social.markNotificationsRead(user.id);return{read:true};});
 
   app.post<{ Body: { filename?: string; contentType?: string; sizeBytes?: number } }>("/videos/uploads", async (request, reply) => {
     const user = await requireUser(request);
@@ -172,14 +181,16 @@ export async function buildApp({ config, submitter, storage, authVerifier, logge
   });
 
   app.get<{ Params: { videoId: string; "*": string } }>("/streams/:videoId/*", async (request, reply) => {
-    const user = await requireUser(request);
-    const record = repository.getOwned(request.params.videoId, user.id);
-    if (!record) throw new ApiError(404, "VIDEO_NOT_FOUND", "Video not found.");
+    const user = await optionalUser(request);
+    const record = repository.get(request.params.videoId);
+    const access = record ? social.detail(record.id,user?.id) as { visibility: string } | null : null;
+    if (!record || !access) throw new ApiError(404, "VIDEO_NOT_FOUND", "Video not found.");
     if (record.status !== "completed") throw new ApiError(404, "STREAM_NOT_READY", "The stream is not available yet.");
     const key = streamKey(record, request.params["*"]);
     try {
       const object = await storage.getObjectStream(key);
-      reply.type(key.endsWith(".m3u8") ? "application/vnd.apple.mpegurl" : "video/mp2t").header("cache-control", key.endsWith(".ts") ? "public,max-age=31536000,immutable" : "public,max-age=60").header("access-control-allow-origin", "*");
+      const cacheControl = access.visibility === "public" ? (key.endsWith(".ts") ? "public,max-age=31536000,immutable" : "public,max-age=60") : "private,no-store";
+      reply.type(key.endsWith(".m3u8") ? "application/vnd.apple.mpegurl" : "video/mp2t").header("cache-control", cacheControl).header("access-control-allow-origin", "*");
       if (object.etag) reply.header("etag", object.etag);
       return reply.send(object.stream);
     } catch {

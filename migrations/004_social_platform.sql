@@ -3,7 +3,7 @@ ALTER TABLE videos ADD COLUMN description TEXT NOT NULL DEFAULT '';
 ALTER TABLE videos ADD COLUMN tags TEXT NOT NULL DEFAULT '';
 ALTER TABLE videos ADD COLUMN visibility TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ('public','unlisted','private'));
 ALTER TABLE videos ADD COLUMN view_count INTEGER NOT NULL DEFAULT 0;
-UPDATE videos SET title = original_filename, visibility = CASE WHEN status = 'completed' THEN 'public' ELSE 'private' END WHERE title IS NULL;
+UPDATE videos SET title = original_filename, visibility = 'private' WHERE title IS NULL;
 
 CREATE TABLE profiles (user_id TEXT PRIMARY KEY, display_name TEXT NOT NULL, bio TEXT NOT NULL DEFAULT '', avatar_url TEXT, created_at TEXT NOT NULL);
 INSERT OR IGNORE INTO profiles(user_id,display_name,bio,created_at) VALUES ('local-development','Frameflow Studio','AI video creator and experimental filmmaker',datetime('now'));
