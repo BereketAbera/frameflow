@@ -11,7 +11,7 @@ Frameflow demonstrates a production-shaped local media pipeline rather than a UI
 5. Play the adaptive HLS output and switch between Auto, 360p, and 720p when the browser uses hls.js.
 6. Return to the workspace, demonstrate search/status filters, then explain owner-scoped deletion and private-object cleanup.
 
-For a repeatable terminal demonstration, run `npm run e2e:local -- input/sample.mp4`. It proves the same upload-to-playback path without manual browser input.
+For a repeatable terminal demonstration, run `npm run e2e:local`. It generates its own short FFmpeg fixture and proves the same upload-to-playback path without manual browser input.
 
 ## Engineering talking points
 
