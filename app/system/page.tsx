@@ -15,10 +15,9 @@ export default function SystemPage() {
   const [ready, setReady] = useState<Ready | null>(null);
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
   const check = useCallback(async () => {
-    const [liveResponse, readyResponse] = await Promise.all([fetch("/api/health/live"), fetch("/api/health/ready")]);
-    setLive(liveResponse.ok);
-    setReady(await readyResponse.json().catch(() => ({ status: "not_ready" })));
-    setCheckedAt(new Date());
+    try { const [liveResponse, readyResponse] = await Promise.all([fetch("/api/health/live"), fetch("/api/health/ready")]);setLive(liveResponse.ok);setReady(await readyResponse.json().catch(() => ({ status: "not_ready" }))); }
+    catch { setLive(false);setReady({status:"not_ready",database:"unknown",storage:"unavailable",workflow:"unknown"}); }
+    finally { setCheckedAt(new Date()); }
   }, []);
   useEffect(() => { check(); const interval = setInterval(check, 10000); return () => clearInterval(interval); }, [check]);
   const services = [
@@ -29,7 +28,7 @@ export default function SystemPage() {
   ];
   const allReady = services.every((service) => service.ok);
   return <div className="min-h-screen bg-muted/25">
-    <header className="mx-auto flex h-19 w-[min(980px,calc(100%-2rem))] items-center justify-between border-b"><Brand /><Link href="/"><Button variant="ghost"><ArrowLeft />Workspace</Button></Link></header>
+    <header className="mx-auto flex h-19 w-[min(980px,calc(100%-2rem))] items-center justify-between border-b"><Brand /><Button asChild variant="ghost"><Link href="/studio"><ArrowLeft />Workspace</Link></Button></header>
     <main className="mx-auto w-[min(980px,calc(100%-2rem))] py-14">
       <div className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-end"><div><p className="text-xs font-bold uppercase tracking-[.16em] text-brand">Runtime diagnostics</p><h1 className="mt-3 text-5xl font-bold tracking-tight">System status</h1><p className="mt-3 text-muted-foreground">A live view of the services behind the local video pipeline.</p></div><div className="flex items-center gap-3"><Badge status={allReady ? "completed" : "failed"}>{allReady ? "All systems ready" : "Action required"}</Badge><Button variant="outline" onClick={check}><RefreshCw />Check now</Button></div></div>
       <div className="grid gap-4 md:grid-cols-2">{services.map(({ name, detail, ok, icon: Icon }) => <Card key={name}><CardHeader className="flex-row items-start justify-between"><span className="grid size-11 place-items-center rounded-xl bg-muted"><Icon className="size-5" /></span>{ok ? <CheckCircle2 className="text-emerald-600" /> : <XCircle className="text-destructive" />}</CardHeader><CardContent><CardTitle>{name}</CardTitle><CardDescription className="mt-2">{detail}</CardDescription><p className={`mt-5 text-sm font-medium ${ok ? "text-emerald-700" : "text-destructive"}`}>{ok ? "Operational" : ready ? "Unavailable" : "Checking…"}</p></CardContent></Card>)}</div>
