@@ -15,7 +15,7 @@ Next.js :3000 -> same-origin rewrites -> Fastify API :4000 -> Supabase auth
                               +-> staging/{runId} -> published HLS (master last)
                               +-> authenticated status callback -> API -> SQLite
 
-React HLS player <- Next rewrite <- API streams allowlisted objects <- storage
+Video.js 10 React player + hls.js adapter <- Next rewrite <- API streams allowlisted objects <- storage
 ```
 
 Hatchet is the workflow-execution source of truth. SQLite is the product-facing projection used for polling. Supabase owns identity; Frameflow verifies sessions and scopes every video read, stream, and upload to its owner. Workflow payloads contain object keys only, and every task independently downloads its input into disposable scratch space.
@@ -86,7 +86,7 @@ Open `http://127.0.0.1:3000`. Next.js serves the public AI-video platform and re
 - live service health and video counts;
 - an owner-scoped recent-video library;
 - live queued, processing, completed, and failed states;
-- a dedicated adaptive HLS player with pipeline progress.
+- a shared Video.js 10 adaptive HLS player with Auto/360p/720p selection and pipeline progress;
 - search and status filters for the video library;
 - safe terminal-video deletion, including private object cleanup;
 - a live system diagnostics page for the API, database, storage, and workflow configuration.
@@ -189,5 +189,6 @@ The Git history intentionally demonstrates product evolution rather than one lar
 3. Phase 3 removed shared-media filesystem coupling with S3-compatible storage, direct uploads, isolated scratch space, staging publication, and cleanup.
 4. The product layer added Supabase identity, per-user authorization, a complete upload workspace, processing UX, and polished playback.
 5. The frontend migration separated the product into a Next.js/React application and a focused Fastify API, with local shadcn/ui-style components and same-origin proxying.
+6. Playback moved to the declarative Video.js 10 React stack with the official hls.js adapter, one shared player surface, responsive controls, and built-in adaptive-quality selection.
 
 Run `git log --oneline --reverse` to walk through the implementation story.
