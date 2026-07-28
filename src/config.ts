@@ -34,7 +34,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
     maxConcurrentEncodes: positiveInteger(env.MAX_CONCURRENT_ENCODES, 2, "MAX_CONCURRENT_ENCODES"),
     workerTempDir: path.resolve(env.WORKER_TEMP_DIR ?? path.join(cwd, ".worker-tmp")),
     s3: {
-      endpoint: env.S3_ENDPOINT || "http://127.0.0.1:9000", region: env.S3_REGION || "us-east-1", bucket: env.S3_BUCKET || "video-processing-poc",
+      endpoint: env.S3_ENDPOINT || "http://127.0.0.1:9000", region: env.S3_REGION || "us-east-1", bucket: env.S3_BUCKET || "frameflow",
       accessKeyId: env.S3_ACCESS_KEY_ID || "minioadmin", secretAccessKey: env.S3_SECRET_ACCESS_KEY || "minioadmin",
       forcePathStyle: !/^(false|0)$/i.test(env.S3_FORCE_PATH_STYLE ?? "true"),
       presignedUploadTtlSeconds: positiveInteger(env.S3_PRESIGNED_UPLOAD_TTL_SECONDS, 600, "S3_PRESIGNED_UPLOAD_TTL_SECONDS"),
