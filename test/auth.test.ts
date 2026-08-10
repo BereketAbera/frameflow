@@ -16,7 +16,7 @@ describe("Supabase-backed API ownership", () => {
   it("establishes a session and isolates each user's videos", async () => {
     root = await mkdtemp(path.join(os.tmpdir(), "video-auth-"));
     const config: AppConfig = {
-      port: 3000, databasePath: path.join(root, "app.db"), uploadDir: path.join(root, "unused"), outputDir: path.join(root, "unused-output"),
+      port: 3000, host: "127.0.0.1", databasePath: path.join(root, "app.db"), uploadDir: path.join(root, "unused"), outputDir: path.join(root, "unused-output"),
       maxUploadBytes: 1_000, reconciliationStaleMinutes: 15, maxConcurrentEncodes: 2, workerTempDir: path.join(root, "scratch"),
       s3: { endpoint: "x", region: "x", bucket: "x", accessKeyId: "x", secretAccessKey: "x", forcePathStyle: true, presignedUploadTtlSeconds: 600 },
       workerCallbackSecret: "secret", supabase: { url: "https://example.supabase.co", anonKey: "public-anon-key" },

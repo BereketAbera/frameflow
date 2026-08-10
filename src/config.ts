@@ -2,6 +2,7 @@ import path from "node:path";
 
 export type AppConfig = {
   port: number;
+  host: string;
   databasePath: string;
   uploadDir: string;
   outputDir: string;
@@ -26,6 +27,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
   const dataDir = path.resolve(cwd, "data");
   return {
     port: positiveInteger(env.PORT, 4000, "PORT"),
+    host: env.HOST?.trim() || "127.0.0.1",
     databasePath: path.resolve(env.DATABASE_PATH ?? path.join(dataDir, "app.db")),
     uploadDir: path.resolve(env.UPLOAD_DIR ?? path.join(dataDir, "uploads")),
     outputDir: path.resolve(env.OUTPUT_DIR ?? path.join(dataDir, "output")),
