@@ -6,19 +6,23 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import type { ObjectStorage, ObjectMetadata } from "./object-storage.js";
 import { assertObjectKey } from "./object-storage.js";
 
-export type S3StorageConfig = { endpoint?: string; region: string; bucket: string; accessKeyId: string; secretAccessKey: string; forcePathStyle: boolean };
+export type S3StorageConfig = { endpoint?: string; publicEndpoint?: string; region: string; bucket: string; accessKeyId: string; secretAccessKey: string; forcePathStyle: boolean };
 
 export class S3ObjectStorage implements ObjectStorage {
   readonly client: S3Client;
+  private publicClient?: S3Client;
   constructor(private readonly config: S3StorageConfig) {
     if (!config.bucket || !config.region || !config.accessKeyId || !config.secretAccessKey) throw new Error("S3 bucket, region, and credentials are required");
-    this.client = new S3Client({ endpoint: config.endpoint, region: config.region, forcePathStyle: config.forcePathStyle,
-      credentials: { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey } });
+    this.client = this.createClient(config.endpoint);
   }
+  /** Browser uploads are signed for the public endpoint when one is configured; every server-side call keeps using the internal client. */
+  get presignClient(): S3Client { return this.config.publicEndpoint ? (this.publicClient ??= this.createClient(this.config.publicEndpoint)) : this.client; }
+  private createClient(endpoint?: string): S3Client { return new S3Client({ endpoint, region: this.config.region, forcePathStyle: this.config.forcePathStyle,
+      credentials: { accessKeyId: this.config.accessKeyId, secretAccessKey: this.config.secretAccessKey } }); }
   async healthcheck(): Promise<void> { await this.client.send(new HeadBucketCommand({ Bucket: this.config.bucket })); }
   async createPresignedUploadUrl(input: { key: string; contentType: string; expiresInSeconds: number }) {
     const key = assertObjectKey(input.key); const now = Date.now();
-    const url = await getSignedUrl(this.client, new PutObjectCommand({ Bucket: this.config.bucket, Key: key, ContentType: input.contentType }), { expiresIn: input.expiresInSeconds });
+    const url = await getSignedUrl(this.presignClient, new PutObjectCommand({ Bucket: this.config.bucket, Key: key, ContentType: input.contentType }), { expiresIn: input.expiresInSeconds });
     return { url, method: "PUT" as const, headers: { "Content-Type": input.contentType }, expiresAt: new Date(now + input.expiresInSeconds * 1000).toISOString() };
   }
   async headObject(key: string): Promise<ObjectMetadata | null> {
