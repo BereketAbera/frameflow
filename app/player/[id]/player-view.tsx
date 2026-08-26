@@ -23,7 +23,7 @@ export function PlayerView({ id }: { id: string }) {
     async function load() {
       try {
         const response = await fetch(`/api/videos/${id}`);
-        if (response.status === 401) return void (location.href = "/");
+        if (response.status === 401) return void (location.href = `/watch/${id}`);
         if (response.status === 404) return active && setNotFound(true);
         if (!response.ok) throw new Error("Could not load this video.");
         const next = await response.json();

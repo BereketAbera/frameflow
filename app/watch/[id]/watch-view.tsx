@@ -43,6 +43,7 @@ export function WatchView({ id }: { id: string }) {
   const [error, setError] = useState("");
   const [playbackError, setPlaybackError] = useState("");
   const [busy, setBusy] = useState("");
+  const [ownerMode, setOwnerMode] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -63,6 +64,13 @@ export function WatchView({ id }: { id: string }) {
   }, [id]);
 
   useEffect(() => {
+    fetch("/api/auth/config")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((config) => setOwnerMode(config?.mode === "owner"))
+      .catch(() => setOwnerMode(false));
+  }, []);
+
+  useEffect(() => {
     load();
     const key = `frameflow-viewed-${id}`;
     if (!sessionStorage.getItem(key)) {
@@ -81,7 +89,11 @@ export function WatchView({ id }: { id: string }) {
     });
     setBusy("");
     if (response.status === 401) {
-      return setError("Sign in to like and save videos.");
+      return setError(
+        ownerMode
+          ? "This public demo is read-only. Likes and saves are limited to the owner."
+          : "Sign in to like and save videos.",
+      );
     }
     if (!response.ok) return setError(`Could not ${kind} this video.`);
     load();
@@ -99,7 +111,11 @@ export function WatchView({ id }: { id: string }) {
     });
     setBusy("");
     if (response.status === 401) {
-      return setError("Sign in to join the conversation.");
+      return setError(
+        ownerMode
+          ? "This public demo is read-only. Comments are limited to the owner."
+          : "Sign in to join the conversation.",
+      );
     }
     if (!response.ok) return setError("Could not post your comment.");
     form.reset();
