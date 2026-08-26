@@ -1,5 +1,8 @@
 import path from "node:path";
 
+export type AuthMode = "local" | "supabase" | "owner";
+export type OwnerAuthConfig = { tokenSha256: string; sessionSecret: string; userId: string; sessionMaxAgeSeconds: number };
+
 export type AppConfig = {
   port: number;
   host: string;
@@ -13,6 +16,7 @@ export type AppConfig = {
   s3: { endpoint?: string; publicEndpoint?: string; region: string; bucket: string; accessKeyId: string; secretAccessKey: string; forcePathStyle: boolean; presignedUploadTtlSeconds: number };
   statusCallbackBaseUrl?: string; workerCallbackSecret: string;
   supabase?: { url: string; anonKey: string };
+  owner?: OwnerAuthConfig;
 };
 
 function positiveInteger(value: string | undefined, fallback: number, name: string): number {
@@ -30,8 +34,35 @@ function publicOrigin(value: string, name: string): string {
   return url.origin;
 }
 
+/** SHA-256 of zero bytes: what hashing an empty or missing key file produces. */
+const EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+/** Browsers cap cookie lifetimes at 400 days, so a longer server-side session could never be presented. */
+const MAX_OWNER_SESSION_SECONDS = 400 * 24 * 60 * 60;
+
+function ownerConfig(env: NodeJS.ProcessEnv): OwnerAuthConfig {
+  const tokenSha256 = (env.OWNER_TOKEN_SHA256 ?? "").trim().toLowerCase(), sessionSecret = env.OWNER_SESSION_SECRET ?? "", userId = (env.OWNER_USER_ID ?? "").trim() || "local-development";
+  if (!/^[0-9a-f]{64}$/.test(tokenSha256)) throw new Error("AUTH_MODE=owner requires OWNER_TOKEN_SHA256: the 64-character hex SHA-256 digest of the owner access key");
+  if (tokenSha256 === EMPTY_SHA256) throw new Error("OWNER_TOKEN_SHA256 is the digest of an empty input; hash the owner access key itself");
+  if (sessionSecret.length < 32) throw new Error("AUTH_MODE=owner requires OWNER_SESSION_SECRET with at least 32 characters");
+  if (!/^[\w.:@-]{1,128}$/.test(userId)) throw new Error("OWNER_USER_ID may only contain letters, digits, and _ . : @ -");
+  const sessionMaxAgeSeconds = positiveInteger(env.OWNER_SESSION_MAX_AGE_SECONDS, 43_200, "OWNER_SESSION_MAX_AGE_SECONDS");
+  if (sessionMaxAgeSeconds > MAX_OWNER_SESSION_SECONDS) throw new Error(`OWNER_SESSION_MAX_AGE_SECONDS must be at most ${MAX_OWNER_SESSION_SECONDS} (400 days)`);
+  return { tokenSha256, sessionSecret, userId, sessionMaxAgeSeconds };
+}
+
+export function authModeOf(config: Pick<AppConfig, "supabase" | "owner">): AuthMode {
+  return config.owner ? "owner" : config.supabase ? "supabase" : "local";
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): AppConfig {
+  const authMode = (env.AUTH_MODE ?? "").trim().toLowerCase();
+  if (!["", "supabase", "owner"].includes(authMode)) throw new Error("AUTH_MODE must be supabase or owner; leave it unset for local development");
+  if (authMode === "owner" && (env.SUPABASE_URL || env.SUPABASE_ANON_KEY)) throw new Error("AUTH_MODE=owner cannot be combined with SUPABASE_URL or SUPABASE_ANON_KEY");
   if (Boolean(env.SUPABASE_URL) !== Boolean(env.SUPABASE_ANON_KEY)) throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY must be configured together");
+  if (authMode === "supabase" && !env.SUPABASE_URL) throw new Error("AUTH_MODE=supabase requires SUPABASE_URL and SUPABASE_ANON_KEY");
+  // Owner secrets without AUTH_MODE=owner would silently fall back to the open local-development mode.
+  if (authMode !== "owner" && (env.OWNER_TOKEN_SHA256 || env.OWNER_SESSION_SECRET)) throw new Error("OWNER_TOKEN_SHA256 and OWNER_SESSION_SECRET are only used with AUTH_MODE=owner");
+  const owner = authMode === "owner" ? ownerConfig(env) : undefined;
   const dataDir = path.resolve(cwd, "data");
   return {
     port: positiveInteger(env.PORT, 4000, "PORT"),
@@ -54,5 +85,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
     },
     statusCallbackBaseUrl:env.STATUS_CALLBACK_BASE_URL,workerCallbackSecret:env.WORKER_CALLBACK_SECRET||"development-worker-secret",
     ...(env.SUPABASE_URL && env.SUPABASE_ANON_KEY ? { supabase: { url: env.SUPABASE_URL.replace(/\/$/, ""), anonKey: env.SUPABASE_ANON_KEY } } : {}),
+    ...(owner ? { owner } : {}),
   };
 }

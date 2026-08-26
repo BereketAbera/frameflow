@@ -1,18 +1,19 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
-import type { AppConfig } from "../config.js";
+import { authModeOf, type AppConfig } from "../config.js";
 import { migrateDatabase } from "../db/migrate.js";
 import { VideoRepository, type VideoRecord } from "../db/video-repository.js";
 import { SocialRepository } from "../db/social-repository.js";
 import type { WorkflowSubmitter } from "../services/workflow-submitter.js";
-import { tokenFromRequest, type AuthUser, type AuthVerifier } from "../services/auth.js";
+import { bearerToken, OwnerAccess, tokenFromRequest, type AuthUser, type AuthVerifier } from "../services/auth.js";
 import type { ObjectStorage } from "../storage/object-storage.js";
 import { videoObjectKeys } from "../storage/object-storage.js";
 import { ApiError } from "./errors.js";
 
 export type AppDependencies = { config: AppConfig; submitter: WorkflowSubmitter; storage: ObjectStorage; authVerifier?: AuthVerifier; logger?: boolean };
 const completionLocks = new Map<string, Promise<VideoRecord>>();
+const sessionCookieHeader = (value: string, maxAgeSeconds: number) => `vp_session=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${process.env.NODE_ENV === "production" ? "; Secure" : ""}`;
 
 export function publicVideo(record: VideoRecord) {
   return {
@@ -49,7 +50,9 @@ export async function buildApp({ config, submitter, storage, authVerifier, logge
     return reply.status(500).send({ error: { code: "INTERNAL_ERROR", message: "The request could not be completed." } });
   });
 
+  const owner = config.owner ? new OwnerAccess(config.owner) : undefined;
   const optionalUser = async (request: FastifyRequest): Promise<AuthUser | null> => {
+    if (owner) return owner.authenticate({ authorization: request.headers.authorization, cookie: request.headers.cookie });
     if (!config.supabase) return { id: "local-development", email: "local@video.local" };
     const token = tokenFromRequest({ authorization: request.headers.authorization, cookie: request.headers.cookie });
     if (!token || !authVerifier) return null;
@@ -62,19 +65,29 @@ export async function buildApp({ config, submitter, storage, authVerifier, logge
     return user;
   };
 
-  app.get("/auth/config", async () => ({ enabled: Boolean(config.supabase), url: config.supabase?.url, anonKey: config.supabase?.anonKey }));
+  app.get("/auth/config", async () => {
+    const mode = authModeOf(config);
+    if (mode === "supabase" && config.supabase) return { enabled: true, mode, url: config.supabase.url, anonKey: config.supabase.anonKey };
+    return { enabled: mode === "owner", mode };
+  });
   app.get("/auth/me", async (request) => requireUser(request));
   app.post("/auth/session", async (request, reply) => {
+    if (owner) {
+      const accessKey = bearerToken(request.headers.authorization);
+      if (!accessKey || !owner.verifyAccessKey(accessKey)) throw new ApiError(401, "UNAUTHENTICATED", "The owner access key is not valid.");
+      reply.header("set-cookie", sessionCookieHeader(owner.createSession(), owner.sessionMaxAgeSeconds));
+      return { user: owner.user };
+    }
     if (!config.supabase) return { user: await requireUser(request) };
     const token = tokenFromRequest({ authorization: request.headers.authorization, cookie: request.headers.cookie });
     if (!token || !authVerifier) throw new ApiError(401, "UNAUTHENTICATED", "A valid Supabase access token is required.");
     const user = await authVerifier.verify(token);
     if (!user) throw new ApiError(401, "UNAUTHENTICATED", "Your session is invalid or expired.");
-    reply.header("set-cookie", `vp_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=3600${process.env.NODE_ENV === "production" ? "; Secure" : ""}`);
+    reply.header("set-cookie", sessionCookieHeader(token, 3600));
     return { user };
   });
   app.delete("/auth/session", async (_request, reply) => {
-    reply.header("set-cookie", "vp_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0");
+    reply.header("set-cookie", sessionCookieHeader("", 0));
     return { signedOut: true };
   });
 

@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { spawn } from "node:child_process";
-import { loadConfig } from "./config.js";
+import { authModeOf, loadConfig } from "./config.js";
 
 type Check = { name: string; ok: boolean; detail: string };
 
@@ -31,7 +31,7 @@ async function main(): Promise<void> {
     endpointCheck("MinIO", `${config.s3.endpoint ?? "https://s3.amazonaws.com"}/minio/health/live`),
   ]);
   checks.push({ name: "Hatchet token", ok: Boolean(process.env.HATCHET_CLIENT_TOKEN), detail: process.env.HATCHET_CLIENT_TOKEN ? "configured" : "missing in .env" });
-  checks.push({ name: "Authentication", ok: true, detail: config.supabase ? "Supabase enabled" : "local development user" });
+  checks.push({ name: "Authentication", ok: true, detail: { owner: "owner access key", supabase: "Supabase enabled", local: "local development user" }[authModeOf(config)] });
   console.log("\nFrameflow local environment\n");
   for (const check of checks) console.log(`${check.ok ? "✓" : "✗"} ${check.name.padEnd(16)} ${check.detail}`);
   if (checks.some((check) => !check.ok)) process.exitCode = 1;
