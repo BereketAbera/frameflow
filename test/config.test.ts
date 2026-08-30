@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { authModeOf, loadConfig } from "../src/config.js";
+import { authModeOf, loadConfig, loadWorkerConfig } from "../src/config.js";
 
 const env = (vars: Record<string, string> = {}) => vars as unknown as NodeJS.ProcessEnv;
 
@@ -61,6 +61,15 @@ describe("configuration", () => {
       expect(() => loadConfig(env({ AUTH_MODE: "local" }))).toThrow(/AUTH_MODE must be/);
       expect(() => loadConfig(env({ OWNER_TOKEN_SHA256: owner.OWNER_TOKEN_SHA256 }))).toThrow(/only used with AUTH_MODE=owner/);
       expect(() => loadConfig(env({ AUTH_MODE: "supabase", ...supabase, OWNER_SESSION_SECRET: owner.OWNER_SESSION_SECRET }))).toThrow(/only used with AUTH_MODE=owner/);
+    });
+  });
+
+  describe("worker settings", () => {
+    it("defaults the schedule timeout to 12h and accepts Go-style durations", () => {
+      expect(loadWorkerConfig(env()).scheduleTimeout).toBe("12h");
+      expect(loadWorkerConfig(env({ FRAMEFLOW_SCHEDULE_TIMEOUT: "" })).scheduleTimeout).toBe("12h");
+      expect(loadWorkerConfig(env({ FRAMEFLOW_SCHEDULE_TIMEOUT: " 1h30m " })).scheduleTimeout).toBe("1h30m");
+      for (const value of ["0h", "0h0m", "12", "1d", "-5m", "1.5h", "h", "5m 30s"]) expect(() => loadWorkerConfig(env({ FRAMEFLOW_SCHEDULE_TIMEOUT: value })), value).toThrow(/FRAMEFLOW_SCHEDULE_TIMEOUT/);
     });
   });
 });
