@@ -52,8 +52,12 @@ function ownerConfig(env: NodeJS.ProcessEnv): OwnerAuthConfig {
 
 /** Settings read only by the Hatchet worker and the workflows it registers. */
 export type WorkerConfig = {
-  /** Go-style duration a task may wait to be scheduled before Hatchet fails it. */
+  slots: number;
+  /** When set, at most this many phase-3 runs execute at once; further videos wait in Hatchet's queue. */
+  maxConcurrentVideos?: number;
+  /** Go-style duration a task may wait to be scheduled before Hatchet fails it, including time spent behind maxConcurrentVideos. */
   scheduleTimeout: string;
+  registerLegacyWorkflow: boolean;
 };
 
 function goDuration(value: string | undefined, fallback: string, name: string): string {
@@ -64,8 +68,12 @@ function goDuration(value: string | undefined, fallback: string, name: string): 
 }
 
 export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
+  const maxConcurrentVideos = env.FRAMEFLOW_MAX_CONCURRENT_VIDEOS?.trim();
   return {
+    slots: positiveInteger(env.FRAMEFLOW_WORKER_SLOTS?.trim(), 2, "FRAMEFLOW_WORKER_SLOTS"),
+    ...(maxConcurrentVideos ? { maxConcurrentVideos: positiveInteger(maxConcurrentVideos, 1, "FRAMEFLOW_MAX_CONCURRENT_VIDEOS") } : {}),
     scheduleTimeout: goDuration(env.FRAMEFLOW_SCHEDULE_TIMEOUT, "12h", "FRAMEFLOW_SCHEDULE_TIMEOUT"),
+    registerLegacyWorkflow: !/^(false|0)$/i.test(env.FRAMEFLOW_REGISTER_LEGACY_WORKFLOW?.trim() ?? "true"),
   };
 }
 

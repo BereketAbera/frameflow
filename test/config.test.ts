@@ -65,6 +65,21 @@ describe("configuration", () => {
   });
 
   describe("worker settings", () => {
+    it("keeps today's worker when nothing is set", () => {
+      expect(loadWorkerConfig(env())).toEqual({ slots: 2, scheduleTimeout: "12h", registerLegacyWorkflow: true });
+    });
+
+    it("reads slots, the video concurrency limit, and legacy registration", () => {
+      expect(loadWorkerConfig(env({ FRAMEFLOW_WORKER_SLOTS: "1", FRAMEFLOW_MAX_CONCURRENT_VIDEOS: "1", FRAMEFLOW_REGISTER_LEGACY_WORKFLOW: "false" }))).toEqual({ slots: 1, maxConcurrentVideos: 1, scheduleTimeout: "12h", registerLegacyWorkflow: false });
+      expect(loadWorkerConfig(env({ FRAMEFLOW_WORKER_SLOTS: "", FRAMEFLOW_MAX_CONCURRENT_VIDEOS: " " })).slots).toBe(2);
+      expect(loadWorkerConfig(env({ FRAMEFLOW_MAX_CONCURRENT_VIDEOS: " " })).maxConcurrentVideos).toBeUndefined();
+      expect(loadWorkerConfig(env({ FRAMEFLOW_REGISTER_LEGACY_WORKFLOW: "FALSE" })).registerLegacyWorkflow).toBe(false);
+      expect(loadWorkerConfig(env({ FRAMEFLOW_REGISTER_LEGACY_WORKFLOW: "true" })).registerLegacyWorkflow).toBe(true);
+      for (const [name, value] of [["FRAMEFLOW_WORKER_SLOTS", "0"], ["FRAMEFLOW_WORKER_SLOTS", "two"], ["FRAMEFLOW_MAX_CONCURRENT_VIDEOS", "0"], ["FRAMEFLOW_MAX_CONCURRENT_VIDEOS", "1.5"]] as const) {
+        expect(() => loadWorkerConfig(env({ [name]: value })), `${name}=${value}`).toThrow(new RegExp(name));
+      }
+    });
+
     it("defaults the schedule timeout to 12h and accepts Go-style durations", () => {
       expect(loadWorkerConfig(env()).scheduleTimeout).toBe("12h");
       expect(loadWorkerConfig(env({ FRAMEFLOW_SCHEDULE_TIMEOUT: "" })).scheduleTimeout).toBe("12h");
