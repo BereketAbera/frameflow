@@ -2,7 +2,7 @@ import { mkdtemp, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { encodeRendition, generateMasterPlaylist, probeVideo, readPlaylist, runProcess } from "../src/services/ffmpeg.js";
+import { encodeRendition, generateMasterPlaylist, probeVideo, readPlaylist, renditionArgs, runProcess } from "../src/services/ffmpeg.js";
 
 describe("FFmpeg HLS pipeline", () => {
   let tempRoot: string;
@@ -46,5 +46,28 @@ describe("FFmpeg HLS pipeline", () => {
     expect((await readdir(path.join(outputRoot, "720p"))).some((name) => name.endsWith(".ts"))).toBe(true);
     const validation = await runProcess("ffprobe", ["-v", "error", "-show_entries", "format=format_name", "-of", "default=nw=1", master], () => undefined);
     expect(validation).toContain("format_name=hls");
+  }, 120_000);
+
+  it("keeps today's encoder arguments unless thread or log limits are set", () => {
+    const base = { inputPath: "/in/source.mp4", outputDir: "/out/.720p-attempt", rendition: "720p" as const, hasAudio: true };
+    expect(renditionArgs(base)).toEqual([
+      "-hide_banner", "-y", "-i", "/in/source.mp4", "-map", "0:v:0", "-map", "0:a:0",
+      "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2",
+      "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-b:v", "2800k", "-maxrate", "2996k", "-bufsize", "4200k",
+      "-force_key_frames", "expr:gte(t,n_forced*4)", "-sc_threshold", "0", "-c:a", "aac", "-b:a", "128k", "-ac", "2",
+      "-f", "hls", "-hls_time", "4", "-hls_playlist_type", "vod", "-hls_flags", "independent_segments",
+      "-hls_segment_filename", path.join("/out/.720p-attempt", "segment-%03d.ts"), path.join("/out/.720p-attempt", "index.m3u8"),
+    ]);
+    const limited = renditionArgs({ ...base, threads: 2, logLevel: "error" });
+    expect(limited.slice(0, 5)).toEqual(["-hide_banner", "-nostats", "-loglevel", "error", "-y"]);
+    expect(limited.slice(limited.indexOf("-threads"), limited.indexOf("-threads") + 2)).toEqual(["-threads", "2"]);
+    expect(limited.indexOf("-threads")).toBeGreaterThan(limited.indexOf("-i"));
+  });
+
+  it("encodes quietly with a capped thread count", async () => {
+    const lines: string[] = [];
+    const rendition = await encodeRendition({ inputPath, outputRoot: path.join(tempRoot, "limited"), rendition: "360p", hasAudio: true, threads: 1, logLevel: "error", log: (line) => lines.push(line) });
+    expect(lines).toEqual([]);
+    expect(await readPlaylist(rendition.playlistPath)).toContain("#EXTINF");
   }, 120_000);
 });
