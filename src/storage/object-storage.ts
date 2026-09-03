@@ -4,8 +4,9 @@ export type ObjectBody = { stream: NodeJS.ReadableStream; contentType: string; c
 export interface ObjectStorage {
   createPresignedUploadUrl(input: { key: string; contentType: string; expiresInSeconds: number }): Promise<{ url: string; method: "PUT"; headers: Record<string, string>; expiresAt: string }>;
   headObject(key: string): Promise<ObjectMetadata | null>;
-  downloadToFile(key: string, destinationPath: string): Promise<void>;
-  uploadFile(input: { key: string; sourcePath: string; contentType: string }): Promise<ObjectMetadata>;
+  /** Aborting the signal stops the transfer and rejects with an AbortError. */
+  downloadToFile(key: string, destinationPath: string, signal?: AbortSignal): Promise<void>;
+  uploadFile(input: { key: string; sourcePath: string; contentType: string; signal?: AbortSignal }): Promise<ObjectMetadata>;
   getObjectStream(key: string): Promise<ObjectBody>;
   copyObject(sourceKey: string, destinationKey: string): Promise<void>;
   deleteObject(key: string): Promise<void>;
