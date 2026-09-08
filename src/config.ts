@@ -10,6 +10,7 @@ export type AppConfig = {
   maxConcurrentEncodes: number;
   workerTempDir: string;
   s3: { endpoint?: string; region: string; bucket: string; accessKeyId: string; secretAccessKey: string; forcePathStyle: boolean; presignedUploadTtlSeconds: number };
+  statusCallbackBaseUrl?: string; workerCallbackSecret: string;
 };
 
 function positiveInteger(value: string | undefined, fallback: number, name: string): number {
@@ -36,5 +37,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
       forcePathStyle: !/^(false|0)$/i.test(env.S3_FORCE_PATH_STYLE ?? "true"),
       presignedUploadTtlSeconds: positiveInteger(env.S3_PRESIGNED_UPLOAD_TTL_SECONDS, 600, "S3_PRESIGNED_UPLOAD_TTL_SECONDS"),
     },
+    statusCallbackBaseUrl:env.STATUS_CALLBACK_BASE_URL,workerCallbackSecret:env.WORKER_CALLBACK_SECRET||"development-worker-secret",
   };
 }

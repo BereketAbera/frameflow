@@ -1,9 +1,10 @@
 import { hatchet } from "./hatchet-client.js";
 import { videoProcessingWorkflow } from "./workflows/video-processing.js";
+import { objectVideoWorkflow } from "./workflows/object-video-processing.js";
 
 async function main(): Promise<void> {
   const worker = await hatchet.worker("video-processing-poc-worker", {
-    workflows: [videoProcessingWorkflow],
+    workflows: [videoProcessingWorkflow, objectVideoWorkflow],
     slots: 2,
   });
   const running = worker.start();
