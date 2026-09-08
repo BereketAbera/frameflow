@@ -12,5 +12,16 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+  minio-init:
+    image: quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      minio: { condition: service_healthy }
+    volumes: ["./minio-cors.xml:/cors.xml:ro"]
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["mc alias set local http://minio:9000 $$S3_ACCESS_KEY_ID $$S3_SECRET_ACCESS_KEY && mc mb --ignore-existing local/$$S3_BUCKET && mc anonymous set none local/$$S3_BUCKET && mc cors set local/$$S3_BUCKET /cors.xml"]
+    environment:
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-minioadmin}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minioadmin}
+      S3_BUCKET: ${S3_BUCKET:-video-processing-poc}
 volumes:
   minio-data:

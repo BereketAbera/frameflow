@@ -98,6 +98,8 @@ export class VideoRepository {
     return (this.database.prepare(`SELECT ${columns} FROM videos
       WHERE status IN ('queued', 'processing') AND updated_at < ? ORDER BY updated_at ASC`).all(before) as VideoRow[]).map(mapRow);
   }
+  listExpiredPending(before:string):VideoRecord[]{return(this.database.prepare(`SELECT ${columns} FROM videos WHERE upload_status='pending' AND upload_expires_at < ?`).all(before)as VideoRow[]).map(mapRow);}
+  listTerminal():VideoRecord[]{return(this.database.prepare(`SELECT ${columns} FROM videos WHERE status IN ('completed','failed')`).all()as VideoRow[]).map(mapRow);}
 
   markUploaded(id: string): VideoRecord { return this.transition(id, ["uploading"], "uploaded"); }
 
