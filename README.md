@@ -1,135 +1,112 @@
 # Local video-processing POC
 
-Phase 1 converts a local MP4 into adaptive 360p/720p HLS with a Hatchet DAG. Phase 2 adds a Fastify upload/status API, application-owned SQLite status projection, guarded HLS delivery, browser player, and explicit reconciliation.
+Phase 3 processes MP4 uploads into adaptive 360p/720p HLS using Hatchet and FFmpeg without requiring the API and worker to share a media filesystem. The API stores product status in SQLite; source and HLS media live in a private S3-compatible bucket (MinIO locally).
 
 ## Architecture
 
 ```text
-browser/curl -> Fastify -> data/uploads/{videoId}/source.mp4 -> Hatchet Phase 2 DAG
-                    |                                      -> ffprobe + parallel FFmpeg
-                    v                                      -> data/output/{videoId}/
-             SQLite videos projection <--- workflow hooks           |
-                    ^                                      guarded /streams + player
-                    +------------- status polling ------------------+
+browser -> API creates upload -> presigned PUT -> private object storage
+   |                                  |
+   +-> confirms upload -> Hatchet Phase 3 DAG
+                              | ffprobe + parallel FFmpeg in isolated scratch dirs
+                              +-> staging/{runId} -> published HLS (master last)
+                              +-> authenticated status callback -> API -> SQLite
+
+browser <- API streams allowlisted private HLS objects <- object storage
 ```
 
-Hatchet is the workflow-execution source of truth. `data/app.db` is the separate product-facing projection used by the API; status GETs do not query Hatchet. FFmpeg remains independent of Fastify and SQLite.
+Hatchet is the workflow-execution source of truth. SQLite is the product-facing projection used for polling. Workflow payloads contain object keys only; video bytes are streamed through storage, and every task independently downloads its input into disposable scratch space. Phase 1 and the legacy Phase 2 workflow remain registered for compatibility.
 
 ## Setup
 
-Requires Node 24+, npm, FFmpeg/ffprobe, and Hatchet Cloud or a self-hosted server.
+Requires Node 24+, npm, Docker, FFmpeg/ffprobe, and Hatchet Cloud or a self-hosted Hatchet server.
 
 ```bash
 cd /Users/bek/dev/pr/video-processing-poc
 npm install
 cp .env.example .env
-# add HATCHET_CLIENT_TOKEN to .env
+# Set HATCHET_CLIENT_TOKEN in .env
+docker compose -f docker-compose.minio.yml up -d
 npm run db:init
 ```
 
-Configuration and safe defaults:
+MinIO runs at `http://127.0.0.1:9000`, its console at `http://127.0.0.1:9001`, and the one-shot initializer creates a private bucket with development CORS rules. Credentials and the bucket can be overridden through the matching `S3_*` environment variables.
+
+Important configuration:
 
 | Variable | Default |
 | --- | --- |
 | `PORT` | `3000` |
 | `DATABASE_PATH` | `./data/app.db` |
-| `UPLOAD_DIR` | `./data/uploads` |
-| `OUTPUT_DIR` | `./data/output` |
+| `S3_ENDPOINT` | `http://127.0.0.1:9000` |
+| `S3_REGION` | `us-east-1` |
+| `S3_BUCKET` | `video-processing-poc` |
+| `S3_FORCE_PATH_STYLE` | `true` |
+| `S3_PRESIGNED_UPLOAD_TTL_SECONDS` | `600` |
+| `WORKER_TEMP_DIR` | `./.worker-tmp` |
 | `MAX_UPLOAD_BYTES` | `524288000` |
-| `RECONCILIATION_STALE_MINUTES` | `15` |
-| `MAX_CONCURRENT_ENCODES` | `2` |
+| `STATUS_CALLBACK_BASE_URL` | `http://127.0.0.1:3000` |
+| `WORKER_CALLBACK_SECRET` | development-only value in `.env.example` |
 
-For a local Docker-backed Hatchet server:
+For AWS S3, omit `S3_ENDPOINT`, use the appropriate region and credentials, and normally set `S3_FORCE_PATH_STYLE=false`. The storage constructor rejects missing bucket, region, or credentials, while `/health/ready` verifies both SQLite and bucket access.
 
-```bash
-hatchet server start --disable-auth --project-name video-processing-poc-hatchet \
-  --profile video-processing-poc-local
-```
+## Run and upload
 
-Copy its worker token into `.env`, then set `HATCHET_CLIENT_HOST_PORT=127.0.0.1:7077` and `HATCHET_CLIENT_TLS_STRATEGY=none`.
-
-## Run Phase 2
-
-Terminal 1:
+Start these in separate terminals:
 
 ```bash
 npm run worker
-```
-
-Terminal 2:
-
-```bash
 npm run api
 ```
 
-Upload and use the returned URLs:
+Open `http://127.0.0.1:3000/upload`, or perform the direct-upload protocol manually:
 
 ```bash
-curl -X POST -F "video=@./input/sample.mp4;type=video/mp4" \
-  http://127.0.0.1:3000/videos
+curl -sS -X POST http://127.0.0.1:3000/videos/uploads \
+  -H 'content-type: application/json' \
+  -d '{"filename":"sample.mp4","contentType":"video/mp4","sizeBytes":123456}'
+
+curl -X PUT '<upload.url from response>' \
+  -H 'content-type: video/mp4' --upload-file ./input/sample.mp4
+
+curl -X POST http://127.0.0.1:3000/videos/<videoId>/upload-complete
 curl http://127.0.0.1:3000/videos/<videoId>
 ```
 
-Open `http://127.0.0.1:3000/player/<videoId>`. The page polls every two seconds, stops at `completed`/`failed`, uses native HLS when available, and otherwise uses hls.js.
+The declared size must exactly match the uploaded object's size. Confirmation is idempotent and concurrent confirmations coalesce to one Hatchet submission. The previous multipart `POST /videos` upload is intentionally removed; clients must use the presigned flow.
 
-Other endpoints:
+Other routes are `GET /videos`, `GET /player/{videoId}`, `GET /streams/{videoId}/master.m3u8`, `GET /health/live`, and `GET /health/ready`.
 
-```bash
-curl http://127.0.0.1:3000/health
-curl 'http://127.0.0.1:3000/videos?limit=20'
-ffprobe http://127.0.0.1:3000/streams/<videoId>/master.m3u8
-```
+The bucket remains private. Playback goes through the API, which requires a completed record and only serves the master, known rendition playlists, and numbered transport-stream segments under that video's published prefix.
 
-## Persistence and consistency
-
-Migration `001_create_videos.sql` creates the typed model and indexes. `npm run db:init` applies versioned migrations transactionally and is safe to rerun.
+## Storage layout and publication
 
 ```text
-uploading -> uploaded -> queued -> processing -> completed
-                                            \-> failed
+videos/{videoId}/source/source.mp4
+videos/{videoId}/staging/{workflowRunId}/{360p|720p}/...
+videos/{videoId}/published/{360p|720p}/...
+videos/{videoId}/published/master.m3u8
 ```
 
-Terminal states cannot regress. Intermediate Hatchet retries do not mark failure; the `onFailure` task runs after retry exhaustion. Completion is written only after all output is atomically published. Hatchet status-based idempotency uses `videoId` to collapse simultaneous duplicate active submissions.
+Renditions upload to a run-specific staging prefix. Publication copies rendition objects first and uploads the master playlist last, so a master never advertises incomplete output. Publication is retry-safe after partial copying or cleanup, and success removes its staging prefix. Object keys are generated from validated IDs rather than client filenames and are validated at the storage boundary.
 
-There is no transaction shared by SQLite and Hatchet. The API persists the upload, submits with a stable ID, then attaches the run ID. It handles a worker starting or completing before that attachment without regressing state. A process crash after Hatchet accepts a run but before its ID is returned can still create an orphan run and a record without a run ID; automatic discovery of that narrow window is outside Phase 2.
+## Database and migration behavior
 
-## Reconciliation
+Migration `002_object_storage.sql` adds source/output keys, upload lifecycle, expiry, ETag, and actual/declared size fields without modifying migration 001. New records never use persistent local media paths. Existing Phase 2 rows retain their local paths and continue through legacy reconciliation; they are not silently converted because no object upload can be inferred safely.
+
+Status transitions remain monotonic: `uploading -> uploaded -> queued -> processing -> completed|failed`, with expired uploads becoming failed.
+
+## Reconciliation and cleanup
 
 ```bash
 npm run reconcile
+npm run cleanup          # dry-run plan only
+npm run cleanup -- --apply
 ```
 
-This inspects only stale `queued`/`processing` records with run IDs. It can repair queued to processing, terminal Hatchet failure, and Hatchet completion when the safe expected master playlist exists. Every repair is logged, terminal rows are excluded, and repeated runs are idempotent. Missing run IDs or output are skipped rather than guessed.
+Reconciliation inspects stale queued/processing rows with Hatchet run IDs. It repairs running, failed, and completed drift, but marks object-backed completion only after the published master exists. Ambiguous records are logged and left unchanged.
 
-## Upload and stream safety
-
-- Uploads stream to a fixed server filename and never use the client filename as a path.
-- Exactly one `video` field is accepted; file size, `.mp4`, `video/mp4`, and ISO-BMFF `ftyp` signature are checked.
-- Partial files are removed. Full ffprobe validation and the minimum 1280x720 rule happen in Hatchet.
-- Status responses omit source paths, credentials, stack traces, and raw worker errors.
-- Streams require a completed database row and allowlist only the master playlist, known variant playlists, and segment pattern.
-- Every stream path is resolved beneath its video-specific output root.
-- HLS MIME types and local-playback CORS headers are set explicitly.
-- Health checks SQLite and both storage directories, not merely the HTTP process.
-
-A narrow manual stream handler is used instead of a general static mount so completion state and the HLS filename allowlist are enforced on every request.
-
-## Phase 1 CLI and retry demo
-
-```bash
-npm run process -- ./input/sample.mp4
-FORCE_720P_FAILURE_ONCE=true npm run process -- ./input/sample.mp4
-```
-
-The retry flag fails only the first 720p attempt using `ctx.retryCount()`; completed parents are not rerun.
-
-Generate a sample if needed:
-
-```bash
-ffmpeg -f lavfi -i "testsrc2=size=1280x720:rate=30" \
-  -f lavfi -i "sine=frequency=1000:sample_rate=48000" \
-  -t 8 -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest ./input/sample.mp4
-```
+Cleanup expires abandoned presigned uploads, removes staging prefixes belonging to terminal records, and removes old worker scratch directories. It is dry-run by default, constrained to known video prefixes/scratch roots, and idempotent. `CLEANUP_STALE_HOURS` controls scratch age.
 
 ## Verification
 
@@ -139,18 +116,22 @@ npm test
 npm run db:init
 ```
 
-Tests use temporary databases/directories and no live Hatchet server. They cover repository transitions, terminal-state protection, upload acceptance/rejection, status shapes, guarded HLS and traversal, workflow status projection, reconciliation idempotency, and the original FFmpeg pipeline.
+Tests use fake object storage and temporary databases/directories. They cover direct-upload validation and idempotency, private HLS allowlisting, storage readiness, independent worker scratch, bounded staged uploads, master-last publication, reconciliation, cleanup dry-run/apply, terminal transitions, and playable FFmpeg output.
 
-## Limits and troubleshooting
+To prove filesystem separation, start API and worker with distinct media and scratch directories; only status callbacks and object storage connect them:
 
-- No authentication: anyone reaching the API can upload, list, inspect, and play.
-- SQLite and local paths require API and worker to share one machine/filesystem.
-- The explicit semaphore permits at most two FFmpeg processes per worker process. Multiple workers multiply that limit; it is not distributed.
-- hls.js comes from jsDelivr, so fallback playback needs internet access.
-- Node currently prints an experimental warning for its built-in SQLite API.
-- A worker crash between output publication and projection update relies on reconciliation.
-- Infrastructure failure that prevents Hatchet's failure task itself also relies on reconciliation.
+```bash
+UPLOAD_DIR=/tmp/api-unused OUTPUT_DIR=/tmp/api-unused-output npm run api
+WORKER_TEMP_DIR=/tmp/video-worker-scratch UPLOAD_DIR=/tmp/worker-unused OUTPUT_DIR=/tmp/worker-unused-output npm run worker
+```
 
-If work stays queued, ensure a current worker registered `video-processing-phase-2`; an old Phase 1 worker cannot claim that workflow. For connection failures, verify the token and local host/TLS settings. For playback issues, confirm completed status and test the stream URL with ffprobe.
+For the retry demonstration, start the API with `FORCE_720P_FAILURE_ONCE=true`; the workflow intentionally fails the first 720p attempt and succeeds on retry without rerunning completed parents.
 
-Recommended Phase 3 scope: authenticated ownership, object storage, distributed FFmpeg admission control, direct/presigned uploads, retention cleanup, stronger media validation, and handoff observability.
+## Limits
+
+- There is no end-user authentication or ownership model.
+- SQLite is still a single-node API persistence choice, although workers do not access it or share media directories.
+- The FFmpeg semaphore is per worker process, not distributed.
+- Stronger content inspection, object lifecycle policies, multipart-resume UX, CDN delivery, and distributed admission control remain future work.
+- hls.js is loaded from jsDelivr when native HLS is unavailable.
+- A crash after Hatchet accepts a run but before the API records its run ID remains ambiguous; reconciliation deliberately does not guess through it.
