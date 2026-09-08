@@ -47,6 +47,8 @@ describe("video API", () => {
       port: 3000, databasePath: path.join(root, "app.db"), uploadDir: path.join(root, "uploads"),
       outputDir: path.join(root, "output"), maxUploadBytes, reconciliationStaleMinutes: 15,
       maxConcurrentEncodes: 2,
+      workerTempDir: path.join(root, "worker"),
+      s3: { endpoint: "http://storage.test", region: "us-east-1", bucket: "test", accessKeyId: "test", secretAccessKey: "test", forcePathStyle: true, presignedUploadTtlSeconds: 600 },
     };
     const submitter = new FakeSubmitter();
     const app = await buildApp({ config, submitter });
