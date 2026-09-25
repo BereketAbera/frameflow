@@ -195,7 +195,7 @@ npm audit
 
 `npm run verify` executes TypeScript validation, the Vitest suite, and a production Next.js build. The current suite covers authentication and cross-user isolation, owner-only access, upload validation and idempotency, private HLS allowlisting, storage readiness, isolated worker scratch space and its startup cleanup, task cancellation of FFmpeg and storage transfers, workflow timeouts and concurrency, bounded staged uploads, master-last publication, reconciliation, cleanup, terminal transitions, curated-film data, and playable FFmpeg output.
 
-The checked-in GitHub Actions workflow runs the same verification and a high-severity dependency audit on pushes and pull requests.
+The `ci.yml` GitHub Actions workflow runs the same verification, with FFmpeg installed, and a high-severity dependency audit on pushes and pull requests. `images.yml` builds and checks the container images; see [Container images and deployment](#container-images-and-deployment).
 
 ## Storage and publication
 
@@ -263,7 +263,59 @@ For AWS S3, omit `S3_ENDPOINT`, provide the appropriate credentials and region, 
 
 For one video at a time on a shared server, set `FRAMEFLOW_MAX_CONCURRENT_VIDEOS=1` on the worker. Use `FRAMEFLOW_WORKER_SLOTS` and `MAX_CONCURRENT_ENCODES` to choose whether its 360p and 720p encodes run in parallel. The worker removes leftover `probe-`, `encode-` and `publish-` directories from `WORKER_TEMP_DIR` when it starts, so do not share that directory between running workers.
 
-`next build` with `NEXT_OUTPUT=standalone` copies the project's `.env` into `.next/standalone`. Build images from a context that excludes `.env`.
+`next build` with `NEXT_OUTPUT=standalone` copies the project's `.env` into `.next/standalone`. Build images from a context that excludes `.env`, as the repository's `.dockerignore` does.
+
+## Container images and deployment
+
+The `Dockerfile` builds two images from one dependency stage, for `linux/amd64` and `linux/arm64`, on `node:24.22.2-trixie-slim` pinned by index digest. Both run as the base image's `node` user (uid 1000) and work with a read-only root filesystem. Neither holds an env file: `.dockerignore` keeps every `.env*` out of the build context, so all settings come from the environment.
+
+```bash
+docker build --target web -t frameflow-web:local .
+docker build --target backend -t frameflow-backend:local .
+scripts/check-ffmpeg-image.sh frameflow-backend:local                # libx264, aac, hls and a short HLS transcode
+scripts/smoke-images.sh frameflow-web:local frameflow-backend:local  # every role read-only, with no Hatchet or S3
+```
+
+| Target | Holds | Default command | Port |
+| --- | --- | --- | --- |
+| `web` | The Next.js standalone server, `.next/static` and `public/` | `node server.js` | 3000 |
+| `backend` | `src/`, `migrations/`, production dependencies, Debian's FFmpeg, and `tini` as PID 1 | `node --import tsx src/api/server.ts` | 4000 |
+
+Build arguments:
+
+- `API_ORIGIN` (web only, default `http://frameflow-api:4000`, the API's Service in the same namespace) is where the web server proxies `/api/*` and `/streams/*`. `next build` bakes it into the rewrites, so another address needs another build, and setting it at runtime changes nothing.
+- `NODE_IMAGE` is the base image. Bump its tag and digest together.
+
+Each backend role runs the same image with another command. In Kubernetes give that command as `args`, which keeps `tini` as the entrypoint. A `command` would replace it.
+
+| Role | Image | `args` | Writable mounts |
+| --- | --- | --- | --- |
+| web | `web` | the default | emptyDirs at `/tmp` and `/app/.next/cache` |
+| api | `backend` | the default | an emptyDir at `/tmp`, and the persistent volume holding `DATABASE_PATH` |
+| worker | `backend` | `node --import tsx src/worker.ts` | an emptyDir at `/tmp`, and a size-limited emptyDir at `WORKER_TEMP_DIR` |
+| reconcile (cron) | `backend` | `node --import tsx src/reconcile.ts` | an emptyDir at `/tmp`, and the API's database volume |
+| cleanup (cron) | `backend` | `node --import tsx src/cleanup.ts --apply` | an emptyDir at `/tmp`, and the API's database volume |
+
+The image's defaults for `DATABASE_PATH` and `WORKER_TEMP_DIR` are `/app/data/app.db` and `/app/.worker-tmp`, so a volume can mount there instead. tsx keeps its compile cache in `/tmp`. An emptyDir is writable by uid 1000, and so are the directories K3s's local-path volumes create; set `fsGroup: 1000` where a volume's root is not.
+
+Runtime environment by role, with the variables from the [configuration reference](#configuration-reference):
+
+- **web** needs nothing. The image sets `NODE_ENV=production`, `PORT=3000` and `HOSTNAME=0.0.0.0`, and the app reads no other variable at runtime.
+- **api**: the image sets `NODE_ENV=production`, which makes session cookies `Secure`, and `HOST=0.0.0.0`. Set `DATABASE_PATH`, `HATCHET_CLIENT_TOKEN` (with `HATCHET_CLIENT_HOST_PORT` and `HATCHET_CLIENT_TLS_STRATEGY` for a self-hosted engine), the `S3_*` settings, `S3_PUBLIC_ENDPOINT` when browsers reach storage at another address, a real `WORKER_CALLBACK_SECRET`, and the authentication mode, for example `AUTH_MODE=owner` with `OWNER_TOKEN_SHA256` and `OWNER_SESSION_SECRET`.
+- **worker**: `HATCHET_CLIENT_TOKEN`, the `S3_*` settings, `WORKER_TEMP_DIR`, `STATUS_CALLBACK_BASE_URL=http://frameflow-api:4000`, the API's `WORKER_CALLBACK_SECRET`, and `FRAMEFLOW_REGISTER_LEGACY_WORKFLOW=false`, because the filesystem workflow needs a disk shared with the API. Its limits are `MAX_CONCURRENT_ENCODES`, the `FRAMEFLOW_*` settings, `FFMPEG_THREADS` and `FFMPEG_LOG_LEVEL`. Leave `AUTH_MODE` and `OWNER_*` unset here, or set them as on the API, since the worker validates them too.
+- **cron**: `DATABASE_PATH` on the API's volume and the `S3_*` settings. Reconcile also needs `HATCHET_CLIENT_TOKEN`, and cleanup reads `CLEANUP_STALE_HOURS`.
+
+Ports, probes and volumes:
+
+- The web server listens on 3000 and the API on 4000. With `HATCHET_CLIENT_WORKER_HEALTHCHECK_ENABLED=true` the worker serves `GET /health` on `HATCHET_CLIENT_WORKER_HEALTHCHECK_PORT` (default 8001). It answers 200, with the worker's status in the body, once the worker has registered its workflows with Hatchet. `/metrics` there answers 503, because `prom-client` is not installed.
+- Probe the API with `GET /health/live` and `GET /health/ready`, which fails while SQLite or storage is unavailable, and the web server with `GET /`.
+- Of these images, only the web server needs to be reachable from outside; browsers also upload straight to object storage, at `S3_PUBLIC_ENDPOINT`. The web server proxies the API's public routes and not `/internal/*`, the worker's status callbacks, which `WORKER_CALLBACK_SECRET` guards.
+- `DATABASE_PATH` must be on a persistent volume. SQLite keeps the whole projection in that one file, so run a single API replica and roll it out with the `Recreate` strategy, which never runs two. The cron jobs open the same file, so they mount the same volume, on the same node when it is ReadWriteOnce.
+- Put `WORKER_TEMP_DIR` on an emptyDir with a `sizeLimit`. Each of the worker's `FRAMEFLOW_WORKER_SLOTS` tasks can hold a copy of a source of up to `MAX_UPLOAD_BYTES`, and an encode also holds its rendition's HLS output. The worker clears leftovers there when it starts.
+
+`.github/workflows/images.yml` builds both targets natively for `linux/amd64` on every pull request and runs both scripts on them. On `main` it pushes `ghcr.io/bereketabera/frameflow/web` and `ghcr.io/bereketabera/frameflow/backend`, tagged with the commit's first 12 characters, then pulls each back by digest, runs both scripts on exactly those digests, and scans them with trivy, failing on any CRITICAL vulnerability that has a fix. It records each `image@digest` in the job summary and the `image-digests` artifact, so deploy by digest. A manual run can also build `linux/arm64` under QEMU, without pushing.
+
+The production deployment configuration for these images, from the namespace and its quotas to the network policies, services, probes and volumes, lives in the plane-platform repository, not here.
 
 ## Current limits and hosting path
 
