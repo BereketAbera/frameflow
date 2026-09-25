@@ -1,0 +1,175 @@
+# Builds the web and backend images from the Dockerfile, natively for linux/amd64 on an x86-64 runner, and checks them with
+# the scripts a local run uses: scripts/check-ffmpeg-image.sh and scripts/smoke-images.sh.
+#
+# Pull request or manual run: build and check, and push nothing. A manual run can also build linux/arm64 under QEMU.
+# Push to main: build both, push both to GHCR tagged with the first 12 characters of the commit, pull each back by digest,
+# check and smoke exactly those digests, and scan them with trivy. Only then do the digests reach the job summary and the
+# image-digests artifact. A failure after the push leaves the images in GHCR, with nothing recording them as checked.
+name: images
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      arm64:
+        description: Also build linux/arm64 under QEMU, without pushing
+        type: boolean
+        default: false
+
+permissions: {}
+
+# A newer push to a pull request replaces its older run. Each commit on main keeps its own run, and so its own images.
+concurrency:
+  group: images-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Build and check (linux/amd64)
+    if: github.event_name != 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      PLATFORM: linux/amd64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build both targets into the runner's Docker
+        run: |
+          for target in web backend; do
+            docker buildx build --platform "$PLATFORM" --target "$target" --provenance=false --sbom=false \
+              --load --tag "frameflow-$target:ci" .
+          done
+      - name: FFmpeg in the backend image
+        run: scripts/check-ffmpeg-image.sh frameflow-backend:ci
+      - name: Run both images read-only
+        run: scripts/smoke-images.sh frameflow-web:ci frameflow-backend:ci
+
+  publish:
+    name: Build, push, check and scan (linux/amd64)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write # push the images to GHCR
+    env:
+      PLATFORM: linux/amd64
+      TRIVY_VERSION: v0.76.1
+      # The linux_amd64 archive's sha256, from tools.lock in BereketAbera/plane-platform.
+      TRIVY_SHA256: c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # Both targets build before either is pushed, so a failed build leaves nothing new in GHCR.
+      - name: Build both targets
+        run: |
+          for target in web backend; do
+            docker buildx build --platform "$PLATFORM" --target "$target" --provenance=false --sbom=false \
+              --output type=cacheonly .
+          done
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # The builds above are cached, so this exports and pushes them. Plain image manifests: no provenance or SBOM index.
+      - name: Push both targets, tagged with the commit
+        env:
+          OWNER: ${{ github.repository_owner }}
+          SOURCE: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          repository="ghcr.io/${OWNER,,}/frameflow"
+          : >"$RUNNER_TEMP/digests.txt"
+          for target in web backend; do
+            docker buildx build --platform "$PLATFORM" --target "$target" --provenance=false --sbom=false \
+              --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+              --label "org.opencontainers.image.source=$SOURCE" \
+              --tag "$repository/$target:${GITHUB_SHA::12}" --push \
+              --metadata-file "$RUNNER_TEMP/$target-metadata.json" .
+            digest="$(jq -r '."containerimage.digest"' "$RUNNER_TEMP/$target-metadata.json")"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "the push of $target reported no digest" >&2; exit 1; }
+            echo "$repository/$target@$digest" >>"$RUNNER_TEMP/digests.txt"
+          done
+          cat "$RUNNER_TEMP/digests.txt"
+      # Every step from here reads the images as GHCR serves them, by digest, so it checks the bytes that were pushed.
+      - name: Pull each digest
+        run: |
+          while read -r image; do docker pull --quiet "$image"; done <"$RUNNER_TEMP/digests.txt"
+      - name: FFmpeg in the pushed backend image
+        run: scripts/check-ffmpeg-image.sh "$(grep '/backend@' "$RUNNER_TEMP/digests.txt")"
+      - name: Run the pushed images read-only
+        run: scripts/smoke-images.sh "$(grep '/web@' "$RUNNER_TEMP/digests.txt")" "$(grep '/backend@' "$RUNNER_TEMP/digests.txt")"
+      - name: Fetch trivy and check it against the pinned sha256
+        run: |
+          mkdir -p "$RUNNER_TEMP/trivy"
+          curl -fsSL --retry 8 --retry-connrefused -o "$RUNNER_TEMP/trivy.tar.gz" \
+            "https://github.com/aquasecurity/trivy/releases/download/$TRIVY_VERSION/trivy_${TRIVY_VERSION#v}_Linux-64bit.tar.gz"
+          echo "$TRIVY_SHA256  $RUNNER_TEMP/trivy.tar.gz" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/trivy.tar.gz" -C "$RUNNER_TEMP/trivy" trivy
+          "$RUNNER_TEMP/trivy/trivy" --version
+      # Reports every HIGH and CRITICAL finding, and fails only on a CRITICAL one that has a fix.
+      - name: Scan each digest
+        run: |
+          status=0
+          while read -r image; do
+            echo "::group::$image"
+            "$RUNNER_TEMP/trivy/trivy" image --scanners vuln --severity HIGH,CRITICAL --no-progress --exit-code 0 "$image"
+            "$RUNNER_TEMP/trivy/trivy" image --scanners vuln --severity CRITICAL --ignore-unfixed --skip-db-update \
+              --no-progress --exit-code 1 "$image" || status=1
+            echo "::endgroup::"
+          done <"$RUNNER_TEMP/digests.txt"
+          exit "$status"
+      - name: Record the digests
+        run: |
+          {
+            echo '### Images pushed, checked and scanned'
+            echo '```'
+            cat "$RUNNER_TEMP/digests.txt"
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: image-digests
+          path: ${{ runner.temp }}/digests.txt
+          if-no-files-found: error
+
+  build-arm64:
+    name: Build and check (linux/arm64 under QEMU)
+    if: github.event_name == 'workflow_dispatch' && inputs.arm64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    env:
+      PLATFORM: linux/arm64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Ubuntu's statically linked QEMU. Containers can use it only when binfmt_misc holds it with the fix-binary flag.
+      - name: Install QEMU
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-user-static
+          grep -Eq '^flags: [A-Z]*F' /proc/sys/fs/binfmt_misc/qemu-aarch64 \
+            || { echo "qemu-aarch64 is not registered with the F flag" >&2; exit 1; }
+      # After QEMU, so the builder lists linux/arm64.
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build both targets into the runner's Docker
+        run: |
+          for target in web backend; do
+            docker buildx build --platform "$PLATFORM" --target "$target" --provenance=false --sbom=false \
+              --load --tag "frameflow-$target:arm64" .
+          done
+      - name: FFmpeg in the backend image, emulated
+        run: scripts/check-ffmpeg-image.sh frameflow-backend:arm64
+      - name: Run both images read-only, emulated
+        run: scripts/smoke-images.sh frameflow-web:arm64 frameflow-backend:arm64
