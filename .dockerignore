@@ -1,0 +1,23 @@
+# What the images build from: package.json, package-lock.json, the source and its configuration.
+# No env file belongs in an image. Settings come from the environment, and next build would copy a .env into the
+# standalone output. .env.example stays out too.
+.env*
+.git
+.github
+.next
+.worker-tmp
+coverage
+data
+dist
+docs
+input
+node_modules
+output
+test
+# Not inputs to either image, so changing them does not invalidate the COPY . . layer.
+.dockerignore
+Dockerfile
+scripts
+*.log
+*.md
+.DS_Store
