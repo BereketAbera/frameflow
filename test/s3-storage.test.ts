@@ -36,6 +36,14 @@ describe("S3 presigned uploads", () => {
     expect(url.pathname).toBe(`/frameflow/${key}`);
     expect(storage.presignClient).toBe(storage.client);
   });
+
+  it("signs AWS uploads virtual-hosted when S3_ENDPOINT is the regional endpoint", async () => {
+    const storage = create({ endpoint: "https://s3.eu-west-1.amazonaws.com", region: "eu-west-1", forcePathStyle: false });
+    const url = new URL((await storage.createPresignedUploadUrl({ key, contentType: "video/mp4", expiresInSeconds: 60 })).url);
+    expect(url.origin).toBe("https://frameflow.s3.eu-west-1.amazonaws.com");
+    expect(url.pathname).toBe(`/${key}`);
+    expect(url.searchParams.get("X-Amz-Credential")).toMatch(/\/eu-west-1\/s3\/aws4_request$/);
+  });
 });
 
 describe("S3 transfers honour cancellation", () => {

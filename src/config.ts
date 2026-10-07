@@ -108,8 +108,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
     maxConcurrentEncodes: positiveInteger(env.MAX_CONCURRENT_ENCODES, 2, "MAX_CONCURRENT_ENCODES"),
     workerTempDir: path.resolve(env.WORKER_TEMP_DIR ?? path.join(cwd, ".worker-tmp")),
     s3: {
-      // An absent S3_ENDPOINT keeps the local MinIO default; an explicitly empty one selects the AWS SDK's regional endpoint.
-      endpoint: env.S3_ENDPOINT === undefined ? "http://127.0.0.1:9000" : env.S3_ENDPOINT.trim() || undefined,
+      // Empty counts as unset, as for every other setting, and keeps the local MinIO default. AWS S3 takes its regional endpoint URL.
+      endpoint: env.S3_ENDPOINT?.trim() || "http://127.0.0.1:9000",
       ...(env.S3_PUBLIC_ENDPOINT?.trim() ? { publicEndpoint: publicOrigin(env.S3_PUBLIC_ENDPOINT, "S3_PUBLIC_ENDPOINT") } : {}),
       region: env.S3_REGION || "us-east-1", bucket: env.S3_BUCKET || "frameflow",
       accessKeyId: env.S3_ACCESS_KEY_ID || "minioadmin", secretAccessKey: env.S3_SECRET_ACCESS_KEY || "minioadmin",
