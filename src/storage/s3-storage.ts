@@ -21,9 +21,10 @@ export class S3ObjectStorage implements ObjectStorage {
   private createClient(endpoint?: string): S3Client { return new S3Client({ endpoint, region: this.config.region, forcePathStyle: this.config.forcePathStyle,
       credentials: { accessKeyId: this.config.accessKeyId, secretAccessKey: this.config.secretAccessKey } }); }
   async healthcheck(): Promise<void> { await this.client.send(new HeadBucketCommand({ Bucket: this.config.bucket })); }
+  /** Content-Type is signed, so storage refuses a PUT of any other type. The presigner leaves it unsigned unless asked. */
   async createPresignedUploadUrl(input: { key: string; contentType: string; expiresInSeconds: number }) {
     const key = assertObjectKey(input.key); const now = Date.now();
-    const url = await getSignedUrl(this.presignClient, new PutObjectCommand({ Bucket: this.config.bucket, Key: key, ContentType: input.contentType }), { expiresIn: input.expiresInSeconds });
+    const url = await getSignedUrl(this.presignClient, new PutObjectCommand({ Bucket: this.config.bucket, Key: key, ContentType: input.contentType }), { expiresIn: input.expiresInSeconds, signableHeaders: new Set(["content-type"]) });
     return { url, method: "PUT" as const, headers: { "Content-Type": input.contentType }, expiresAt: new Date(now + input.expiresInSeconds * 1000).toISOString() };
   }
   async headObject(key: string): Promise<ObjectMetadata | null> {
