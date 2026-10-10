@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.12
+# syntax=docker/dockerfile:1.12.1@sha256:93bfd3b68c109427185cd78b4779fc82b484b0b7618e36d0f104d4d801e66d25
 #
 # Two images from one Dockerfile, both built on the dependency stage below:
 #
@@ -8,6 +8,9 @@
 #
 # Each target builds for linux/amd64 and linux/arm64 from these same lines. The base is a multi-platform index, and npm
 # and apt pick each platform's binaries, so nothing here downloads for one architecture.
+#
+# The syntax line pins the Dockerfile frontend that BuildKit runs, by index digest like NODE_IMAGE below, so a retag of
+# docker/dockerfile:1.12 cannot change what a build produces. Bump its tag and digest together, the same way.
 
 # The index digest pins the image of every platform at once. Bump the tag and the digest together, reading the digest
 # from 'docker buildx imagetools inspect node:<tag>'.
