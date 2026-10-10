@@ -241,7 +241,7 @@ For the retry demonstration, start the API with `FORCE_720P_FAILURE_ONCE=true`. 
 | `S3_FORCE_PATH_STYLE` | `true` | Required for local MinIO |
 | `S3_PRESIGNED_UPLOAD_TTL_SECONDS` | `600` | Upload URL lifetime |
 | `MAX_UPLOAD_BYTES` | `524288000` | Maximum source size |
-| `MAX_CONCURRENT_ENCODES` | `2` | Per-worker FFmpeg limit |
+| `MAX_CONCURRENT_ENCODES` | `2` | Per-worker FFmpeg limit; keep it at least `FRAMEFLOW_WORKER_SLOTS` |
 | `WORKER_TEMP_DIR` | `./.worker-tmp` | Disposable worker scratch root |
 | `STATUS_CALLBACK_BASE_URL` | `http://127.0.0.1:4000` | Worker callback target |
 | `WORKER_CALLBACK_SECRET` | development value | Callback authentication |
@@ -252,7 +252,7 @@ For the retry demonstration, start the API with `FORCE_720P_FAILURE_ONCE=true`. 
 | `OWNER_SESSION_SECRET` | none (owner mode) | At least 32 characters; signs owner session cookies |
 | `OWNER_USER_ID` | `local-development` | User ID the owner acts as for uploads, comments and likes |
 | `OWNER_SESSION_MAX_AGE_SECONDS` | `43200` | Owner session lifetime, at most 400 days |
-| `FRAMEFLOW_WORKER_SLOTS` | `2` | Hatchet slots: tasks one worker runs at once |
+| `FRAMEFLOW_WORKER_SLOTS` | `2` | Hatchet slots: tasks one worker runs at once. `1` encodes one rendition at a time |
 | `FRAMEFLOW_MAX_CONCURRENT_VIDEOS` | unset | When set, at most N videos process at once; the rest wait in Hatchet's queue |
 | `FRAMEFLOW_SCHEDULE_TIMEOUT` | `12h` | How long a task may wait to be scheduled, including in that queue |
 | `FRAMEFLOW_REGISTER_LEGACY_WORKFLOW` | `true` | `false` skips registering the filesystem workflow `frameflow-phase-2` |
@@ -261,7 +261,7 @@ For the retry demonstration, start the API with `FORCE_720P_FAILURE_ONCE=true`. 
 
 For AWS S3, set `S3_ENDPOINT` to the regional endpoint, for example `https://s3.eu-west-1.amazonaws.com` with `S3_REGION=eu-west-1`, provide the appropriate credentials, and normally set `S3_FORCE_PATH_STYLE=false`. Leaving `S3_ENDPOINT` out or empty keeps local MinIO at `http://127.0.0.1:9000`.
 
-For one video at a time on a shared server, set `FRAMEFLOW_MAX_CONCURRENT_VIDEOS=1` on the worker. Use `FRAMEFLOW_WORKER_SLOTS` and `MAX_CONCURRENT_ENCODES` to choose whether its 360p and 720p encodes run in parallel. The worker removes leftover `probe-`, `encode-` and `publish-` directories from `WORKER_TEMP_DIR` when it starts, so do not share that directory between running workers.
+For one video at a time on a shared server, set `FRAMEFLOW_MAX_CONCURRENT_VIDEOS=1` on the worker. Its 360p and 720p encodes still run in parallel on the default two slots. To encode one rendition at a time, set `FRAMEFLOW_WORKER_SLOTS=1`: the second encode then waits in Hatchet's queue, where `FRAMEFLOW_SCHEDULE_TIMEOUT` applies. Do not lower `MAX_CONCURRENT_ENCODES` for that, and keep it at least `FRAMEFLOW_WORKER_SLOTS`. An encode that waits for that FFmpeg limit has already started in Hatchet, so the wait counts against its 30-minute execution timeout, and a long wait can time it out and spend one of its retries. The worker logs a warning at startup when `FRAMEFLOW_WORKER_SLOTS` is the larger. The worker removes leftover `probe-`, `encode-` and `publish-` directories from `WORKER_TEMP_DIR` when it starts, so do not share that directory between running workers.
 
 `next build` with `NEXT_OUTPUT=standalone` copies the project's `.env` into `.next/standalone`. Build images from a context that excludes `.env`, as the repository's `.dockerignore` does.
 

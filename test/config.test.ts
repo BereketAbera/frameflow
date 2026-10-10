@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { authModeOf, loadConfig, loadWorkerConfig } from "../src/config.js";
+import { authModeOf, encodeLimitWarning, loadConfig, loadWorkerConfig } from "../src/config.js";
 
 const env = (vars: Record<string, string> = {}) => vars as unknown as NodeJS.ProcessEnv;
 
@@ -88,6 +88,14 @@ describe("configuration", () => {
       expect(() => loadWorkerConfig(env({ FFMPEG_THREADS: "0" }))).toThrow(/FFMPEG_THREADS/);
       expect(() => loadWorkerConfig(env({ FFMPEG_THREADS: "auto" }))).toThrow(/FFMPEG_THREADS/);
       expect(() => loadWorkerConfig(env({ FFMPEG_LOG_LEVEL: "silent" }))).toThrow(/FFMPEG_LOG_LEVEL must be one of quiet/);
+    });
+
+    it("warns when more slots than MAX_CONCURRENT_ENCODES would make encodes wait inside their timeout", () => {
+      expect(encodeLimitWarning(loadWorkerConfig(env()).slots, loadConfig(env()).maxConcurrentEncodes)).toBeUndefined();
+      expect(encodeLimitWarning(1, 1)).toBeUndefined();
+      expect(encodeLimitWarning(1, 2)).toBeUndefined();
+      expect(encodeLimitWarning(2, 1)).toMatch(/^FRAMEFLOW_WORKER_SLOTS=2 is above MAX_CONCURRENT_ENCODES=1: .*execution timeout\. Raise MAX_CONCURRENT_ENCODES to 2/);
+      expect(encodeLimitWarning(4, 2)).toMatch(/lower FRAMEFLOW_WORKER_SLOTS/);
     });
 
     it("defaults the schedule timeout to 12h and accepts Go-style durations", () => {
