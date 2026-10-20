@@ -160,8 +160,10 @@ containers+=("$worker")
 docker run -d --name "$worker" "${hardened[@]}" "${backend_env[@]}" -e FRAMEFLOW_REGISTER_LEGACY_WORKFLOW=false "$backend_image" \
   sh -c 'mkdir /scratch/encode-stale && exec node --import tsx src/worker.ts' >/dev/null
 wait_log "$worker" "Removed 1 stale scratch directory from /scratch" 90 || true
-# With modules loaded and the scratch directory clean, it registers its workflows with the engine the token names.
-wait_log "$worker" "PutWorkflow UNAVAILABLE" 60 || true
+# With modules loaded and the scratch directory clean, it registers its workflows with the engine the token names. The
+# SDK's admin client makes that call over Connect and logs each failed attempt with the error's Connect code. It retries
+# for about 13 s before the worker exits, so the checks below still find it running.
+wait_log "$worker" "[ERROR/Admin] Error: [unavailable]" 60 || true
 if docker logs "$worker" 2>&1 | grep -q 'ECONNREFUSED 127.0.0.1:7070'; then pass "the worker dialled the token's engine address"; else fail "the worker never dialled 127.0.0.1:7070"; fi
 as_user "$worker"
 no_write_errors "$worker"
