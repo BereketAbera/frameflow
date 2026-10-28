@@ -104,6 +104,11 @@ wait_log() { # wait_log <container> <fixed string> <seconds>
   pass "logged '$2' after about $i s"
 }
 as_user() { check "$1 runs as uid" "$(docker exec "$1" id -u 2>/dev/null || echo 'nothing: it is not running')" 1000; }
+no_npm() { # no_npm <container>: the Dockerfile removes npm, npx and corepack, which no role runs
+  local found
+  found="$(docker exec "$1" sh -c 'for tool in npm npx corepack; do command -v "$tool" || :; done; echo end' 2>/dev/null || true)"
+  if [[ "$found" == end ]]; then pass "$1 has no npm, npx or corepack"; else fail "$1 has npm, npx or corepack, or is not running: $(tr '\n' ' ' <<<"${found:-no answer}")"; fi
+}
 no_write_errors() {
   if docker logs "$1" 2>&1 | grep -Eqi 'EROFS|read-only file system|EACCES'; then fail "$1 logged a write error"; else pass "$1 logged no write error"; fi
 }
@@ -132,6 +137,7 @@ else
 fi
 if body /social/feed | grep -q '"featured":\[{'; then pass "GET /social/feed serves the seeded featured films"; else fail "GET /social/feed has no featured films"; fi
 as_user "$api"
+no_npm "$api"
 check "PID 1 in $api" "$(docker exec "$api" cat /proc/1/comm)" tini
 check "tsx caches in /tmp" "$(docker exec "$api" sh -c 'ls -d /tmp/tsx-*')" /tmp/tsx-1000
 
@@ -151,6 +157,7 @@ if [[ "$rewrites" -ge 1 ]]; then pass "$rewrites rewrites point at $API_ORIGIN";
 check "GET /api/health/live, through the rewrite to the API" "$(code /api/health/live)" 200
 check "GET /api/health/ready, through the rewrite to the API" "$(code /api/health/ready)" 503
 as_user "$web"
+no_npm "$web"
 
 printf '\n== worker: %s\n' "$backend_image"
 worker="$run_id-worker"

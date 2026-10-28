@@ -46,11 +46,14 @@ LABEL org.opencontainers.image.title="frameflow-web" \
 # The pinned base holds Debian's packages only as new as its last rebuild, and images.yml fails the publish when trivy
 # finds a CRITICAL vulnerability that has a fix, as it did for the static sites' nginx base. So every build takes the
 # release's security updates rather than wait for a new base image. CI builds with no cache from earlier runs, so each
-# of its builds gets the updates published by then.
+# of its builds gets the updates published by then. npm, npx and corepack go too: the server runs as node server.js,
+# and their bundled packages would only add findings to that scan.
 RUN apt-get update \
   && apt-get upgrade -y --no-install-recommends \
   && apt-get clean \
-  && rm -rf /var/lib/apt/lists/*
+  && rm -rf /var/lib/apt/lists/* \
+  && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+    /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \
@@ -74,13 +77,16 @@ LABEL org.opencontainers.image.title="frameflow-backend" \
       org.opencontainers.image.description="Frameflow API, Hatchet worker and maintenance commands, with FFmpeg"
 # Debian's own builds, from the release the base image pins. Their versions are not pinned, so a rebuild takes the
 # release's security updates, and a version pin would fail the build once the mirrors drop that version. The upgrade
-# takes the same updates for the base image's own packages, as in the web stage.
+# takes the same updates for the base image's own packages, and npm, npx and corepack go, as in the web stage: every
+# role runs node directly, and backend-deps ran npm ci in its own stage.
 # hadolint ignore=DL3008
 RUN apt-get update \
   && apt-get upgrade -y --no-install-recommends \
   && apt-get install -y --no-install-recommends ca-certificates ffmpeg tini \
   && apt-get clean \
-  && rm -rf /var/lib/apt/lists/*
+  && rm -rf /var/lib/apt/lists/* \
+  && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+    /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 # HOST: listen beyond the container's loopback. DOTENV_CONFIG_QUIET: the image has no .env, and settings come from the
 # environment, so dotenv need not announce that it loaded nothing.
 ENV NODE_ENV=production \
