@@ -4,6 +4,7 @@ import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import type { AppConfig } from "../config.js";
 import { migrateDatabase } from "../db/migrate.js";
 import { VideoRepository, type VideoRecord } from "../db/video-repository.js";
+import { SocialRepository } from "../db/social-repository.js";
 import type { WorkflowSubmitter } from "../services/workflow-submitter.js";
 import { tokenFromRequest, type AuthUser, type AuthVerifier } from "../services/auth.js";
 import type { ObjectStorage } from "../storage/object-storage.js";
@@ -39,8 +40,9 @@ function streamKey(record: VideoRecord, relativePath: string): string {
 export async function buildApp({ config, submitter, storage, authVerifier, logger = false }: AppDependencies): Promise<FastifyInstance> {
   await migrateDatabase(config.databasePath);
   const repository = new VideoRepository(config.databasePath);
+  const social = new SocialRepository(config.databasePath);
   const app = Fastify({ logger });
-  app.addHook("onClose", async () => repository.close());
+  app.addHook("onClose", async () => { repository.close(); social.close(); });
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof ApiError) return reply.status(error.statusCode).send({ error: { code: error.code, message: error.message } });
     app.log.error(error);
@@ -71,6 +73,23 @@ export async function buildApp({ config, submitter, storage, authVerifier, logge
     reply.header("set-cookie", "vp_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0");
     return { signedOut: true };
   });
+
+  app.get("/social/feed", async () => ({ videos: social.publicVideos(), featured: social.featured() }));
+  app.get<{ Params:{id:string} }>("/social/videos/:id", async (request) => {
+    const user = await requireUser(request);
+    const video = social.detail(request.params.id, user.id);
+    if (!video) throw new ApiError(404,"VIDEO_NOT_FOUND","Video not found.");
+    return { video, comments: social.comments(request.params.id) };
+  });
+  app.patch<{ Params:{id:string};Body:{title?:string;description?:string;tags?:string;visibility?:string} }>("/social/videos/:id",async(request)=>{const user=await requireUser(request),body=request.body??{};if(!body.title?.trim()||!['public','unlisted','private'].includes(body.visibility??''))throw new ApiError(400,'INVALID_VIDEO_METADATA','Title and visibility are required.');if(!social.updateVideo(request.params.id,user.id,{title:body.title.trim().slice(0,120),description:(body.description??'').trim().slice(0,2000),tags:(body.tags??'').trim().slice(0,300),visibility:body.visibility!}))throw new ApiError(404,'VIDEO_NOT_FOUND','Video not found.');return social.detail(request.params.id,user.id);});
+  app.post<{Params:{id:string}}>("/social/videos/:id/view",async(request)=>{social.view(request.params.id);return{viewed:true};});
+  app.post<{Params:{id:string}}>("/social/videos/:id/like",async(request)=>{const user=await requireUser(request);return{liked:social.toggle('video_likes',request.params.id,user.id)};});
+  app.post<{Params:{id:string}}>("/social/videos/:id/save",async(request)=>{const user=await requireUser(request);return{saved:social.toggle('saved_videos',request.params.id,user.id)};});
+  app.post<{Params:{id:string};Body:{body?:string;parentId?:string}}>("/social/videos/:id/comments",async(request,reply)=>{const user=await requireUser(request),body=request.body?.body?.trim();if(!body||body.length>1000)throw new ApiError(400,'INVALID_COMMENT','Comment must be between 1 and 1000 characters.');social.ensureProfile(user.id,user.email);const id=social.addComment(request.params.id,user.id,body,request.body.parentId);return reply.status(201).send({id});});
+  app.get<{Params:{id:string}}>("/social/profiles/:id",async(request)=>social.profile(request.params.id));
+  app.get("/social/playlists",async(request)=>{const user=await requireUser(request);return{playlists:social.playlists(user.id)};});
+  app.post<{Body:{title?:string}}>("/social/playlists",async(request,reply)=>{const user=await requireUser(request),title=request.body?.title?.trim();if(!title)throw new ApiError(400,'INVALID_TITLE','Playlist title is required.');return reply.status(201).send({id:social.createPlaylist(user.id,title.slice(0,80))});});
+  app.get("/social/notifications",async(request)=>{const user=await requireUser(request);return{notifications:social.notifications(user.id)};});
 
   app.post<{ Body: { filename?: string; contentType?: string; sizeBytes?: number } }>("/videos/uploads", async (request, reply) => {
     const user = await requireUser(request);
