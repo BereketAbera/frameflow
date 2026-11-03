@@ -1,6 +1,6 @@
 # Frameflow — local video processing platform
 
-Frameflow is a usable local video-processing product built from a three-phase infrastructure POC. It combines a Next.js 16 / React 19 workspace, optional Supabase authentication, direct-to-object-storage uploads, Hatchet orchestration, and parallel FFmpeg transcoding into adaptive 360p/720p HLS.
+Frameflow is an AI-video publishing and discovery platform built from a production-shaped local processing POC. It combines a Next.js 16 / React 19 community experience, optional Supabase authentication, direct-to-object-storage uploads, Hatchet orchestration, and parallel FFmpeg transcoding into adaptive 360p/720p HLS.
 
 The frontend uses the App Router, TypeScript, Tailwind CSS v4, and local shadcn/ui-style component source. See [the UI system guide](./docs/ui-system.md) for the component mapping and extension rules.
 
@@ -80,7 +80,7 @@ npm run api
 npm run dev
 ```
 
-Open `http://127.0.0.1:3000`. Next.js serves the product UI and rewrites its same-origin API and HLS requests to Fastify on port 4000. The responsive workspace provides:
+Open `http://127.0.0.1:3000`. Next.js serves the public AI-video platform and rewrites its same-origin API and HLS requests to Fastify on port 4000. `/studio` contains the creator workspace. The product provides:
 
 - drag-and-drop MP4 selection and direct-upload progress;
 - live service health and video counts;
@@ -90,6 +90,11 @@ Open `http://127.0.0.1:3000`. Next.js serves the product UI and rewrites its sam
 - search and status filters for the video library;
 - safe terminal-video deletion, including private object cleanup;
 - a live system diagnostics page for the API, database, storage, and workflow configuration.
+- a public landing page and searchable AI-video discovery feed;
+- rich watch pages with views, likes, saves, comments, and sharing;
+- creator profiles, publishing metadata and visibility controls;
+- playlists, saved-video state, and an activity center;
+- ten attributed, externally linked AI-film selections for inspiration.
 
 The raw protocol remains available for API clients. With Supabase enabled, establish a session or supply a bearer token:
 
