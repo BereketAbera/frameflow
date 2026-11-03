@@ -115,10 +115,10 @@ The declared size must exactly match the uploaded object's size. Confirmation is
 Run the reusable end-to-end smoke test while the API, worker, Next.js, and MinIO are running:
 
 ```bash
-npm run e2e:local -- input/sample.mp4
+npm run e2e:local
 ```
 
-It creates a presigned upload, transfers the source, submits the Hatchet workflow, polls through processing, and verifies the published HLS manifest before printing the player URL.
+If no input is supplied, the command generates a deterministic 1280×720 fixture with FFmpeg. It creates a presigned upload, transfers the source, submits the Hatchet workflow, verifies both rendition playlists and a segment, publishes social metadata, and checks the watch API before printing the URL. Set `E2E_CLEANUP=true` to remove the generated video and objects afterward.
 
 Other API routes are `GET /videos`, `GET /streams/{videoId}/master.m3u8`, `GET /auth/me`, `GET /health/live`, and `GET /health/ready`. The React routes are `/` and `/player/[id]`.
 
