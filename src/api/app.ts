@@ -142,6 +142,15 @@ export async function buildApp({ config, submitter, storage, authVerifier, logge
     const user = await requireUser(request);
     return { videos: repository.listOwned(user.id, Math.min(Math.max(Number(request.query.limit) || 20, 1), 100)).map(publicVideo) };
   });
+  app.delete<{ Params: { id: string } }>("/videos/:id", async (request, reply) => {
+    const user = await requireUser(request);
+    const record = repository.getOwned(request.params.id, user.id);
+    if (!record) throw new ApiError(404, "VIDEO_NOT_FOUND", "Video not found.");
+    if (!["completed", "failed"].includes(record.status)) throw new ApiError(409, "VIDEO_ACTIVE", "A video cannot be deleted while processing is active.");
+    await storage.deletePrefix(videoObjectKeys(record.id).root);
+    repository.deleteOwned(record.id, user.id);
+    return reply.status(204).send();
+  });
 
   app.get<{ Params: { videoId: string; "*": string } }>("/streams/:videoId/*", async (request, reply) => {
     const user = await requireUser(request);
@@ -172,7 +181,7 @@ export async function buildApp({ config, submitter, storage, authVerifier, logge
     try {
       if ("healthcheck" in storage) await (storage as ObjectStorage & { healthcheck(): Promise<void> }).healthcheck();
       repository.healthcheck();
-      return { status: "ready", database: "ok", storage: "ok" };
+      return { status: "ready", database: "ok", storage: "ok", workflow: "configured" };
     } catch {
       return reply.status(503).send({ status: "not_ready", database: "unknown", storage: "unavailable" });
     }
