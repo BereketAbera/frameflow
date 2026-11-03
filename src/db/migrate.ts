@@ -17,7 +17,11 @@ export async function migrateDatabase(databasePath: string): Promise<void> {
         applied_at TEXT NOT NULL
       );
     `);
-    const migrations = [{ version: 1, file: "001_create_videos.sql" }, { version: 2, file: "002_object_storage.sql" }];
+    const migrations = [
+      { version: 1, file: "001_create_videos.sql" },
+      { version: 2, file: "002_object_storage.sql" },
+      { version: 3, file: "003_video_ownership.sql" },
+    ];
     const applied = database.prepare("SELECT 1 FROM schema_migrations WHERE version = ?");
     for (const migration of migrations) {
       if (applied.get(migration.version)) continue;

@@ -11,6 +11,7 @@ export type AppConfig = {
   workerTempDir: string;
   s3: { endpoint?: string; region: string; bucket: string; accessKeyId: string; secretAccessKey: string; forcePathStyle: boolean; presignedUploadTtlSeconds: number };
   statusCallbackBaseUrl?: string; workerCallbackSecret: string;
+  supabase?: { url: string; anonKey: string };
 };
 
 function positiveInteger(value: string | undefined, fallback: number, name: string): number {
@@ -21,6 +22,7 @@ function positiveInteger(value: string | undefined, fallback: number, name: stri
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): AppConfig {
+  if (Boolean(env.SUPABASE_URL) !== Boolean(env.SUPABASE_ANON_KEY)) throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY must be configured together");
   const dataDir = path.resolve(cwd, "data");
   return {
     port: positiveInteger(env.PORT, 3000, "PORT"),
@@ -38,5 +40,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
       presignedUploadTtlSeconds: positiveInteger(env.S3_PRESIGNED_UPLOAD_TTL_SECONDS, 600, "S3_PRESIGNED_UPLOAD_TTL_SECONDS"),
     },
     statusCallbackBaseUrl:env.STATUS_CALLBACK_BASE_URL,workerCallbackSecret:env.WORKER_CALLBACK_SECRET||"development-worker-secret",
+    ...(env.SUPABASE_URL && env.SUPABASE_ANON_KEY ? { supabase: { url: env.SUPABASE_URL.replace(/\/$/, ""), anonKey: env.SUPABASE_ANON_KEY } } : {}),
   };
 }
