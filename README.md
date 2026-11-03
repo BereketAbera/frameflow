@@ -1,18 +1,21 @@
 # Frameflow — local video processing platform
 
-Frameflow is a usable local video-processing product built from a three-phase infrastructure POC. It combines a polished responsive workspace, optional Supabase authentication, direct-to-object-storage uploads, Hatchet orchestration, and parallel FFmpeg transcoding into adaptive 360p/720p HLS.
+Frameflow is a usable local video-processing product built from a three-phase infrastructure POC. It combines a Next.js 16 / React 19 workspace, optional Supabase authentication, direct-to-object-storage uploads, Hatchet orchestration, and parallel FFmpeg transcoding into adaptive 360p/720p HLS.
+
+The frontend uses the App Router, TypeScript, Tailwind CSS v4, and local shadcn/ui-style component source. See [the UI system guide](./docs/ui-system.md) for the component mapping and extension rules.
 
 ## Architecture
 
 ```text
-browser -> Supabase auth -> API creates upload -> presigned PUT -> private object storage
-   |                                  |
-   +-> confirms upload -> Hatchet Phase 3 DAG
+Next.js :3000 -> same-origin rewrites -> Fastify API :4000 -> Supabase auth
+      |                                      |
+      +-> API creates upload -> presigned PUT -> private object storage
+      +-> confirms upload -> Hatchet Phase 3 DAG
                               | ffprobe + parallel FFmpeg in isolated scratch dirs
                               +-> staging/{runId} -> published HLS (master last)
                               +-> authenticated status callback -> API -> SQLite
 
-browser <- API streams allowlisted private HLS objects <- object storage
+React HLS player <- Next rewrite <- API streams allowlisted objects <- storage
 ```
 
 Hatchet is the workflow-execution source of truth. SQLite is the product-facing projection used for polling. Supabase owns identity; Frameflow verifies sessions and scopes every video read, stream, and upload to its owner. Workflow payloads contain object keys only, and every task independently downloads its input into disposable scratch space.
@@ -39,7 +42,8 @@ Important configuration:
 
 | Variable | Default |
 | --- | --- |
-| `PORT` | `3000` |
+| `PORT` | `4000` |
+| `API_ORIGIN` | `http://127.0.0.1:4000` (Next.js only) |
 | `DATABASE_PATH` | `./data/app.db` |
 | `S3_ENDPOINT` | `http://127.0.0.1:9000` |
 | `S3_REGION` | `us-east-1` |
@@ -48,7 +52,7 @@ Important configuration:
 | `S3_PRESIGNED_UPLOAD_TTL_SECONDS` | `600` |
 | `WORKER_TEMP_DIR` | `./.worker-tmp` |
 | `MAX_UPLOAD_BYTES` | `524288000` |
-| `STATUS_CALLBACK_BASE_URL` | `http://127.0.0.1:3000` |
+| `STATUS_CALLBACK_BASE_URL` | `http://127.0.0.1:4000` |
 | `WORKER_CALLBACK_SECRET` | development-only value in `.env.example` |
 | `SUPABASE_URL` | unset; enables Supabase auth when paired with the anon key |
 | `SUPABASE_ANON_KEY` | unset; safe-to-expose Supabase public key |
@@ -68,14 +72,15 @@ Never use the Supabase service-role key in this application. Only the public ano
 
 ## Run the product
 
-Start these in separate terminals:
+Start these in separate terminals after MinIO and the database are ready:
 
 ```bash
 npm run worker
 npm run api
+npm run dev
 ```
 
-Open `http://127.0.0.1:3000`. The responsive workspace provides:
+Open `http://127.0.0.1:3000`. Next.js serves the product UI and rewrites its same-origin API and HLS requests to Fastify on port 4000. The responsive workspace provides:
 
 - drag-and-drop MP4 selection and direct-upload progress;
 - live service health and video counts;
@@ -86,20 +91,20 @@ Open `http://127.0.0.1:3000`. The responsive workspace provides:
 The raw protocol remains available for API clients. With Supabase enabled, establish a session or supply a bearer token:
 
 ```bash
-curl -sS -X POST http://127.0.0.1:3000/videos/uploads \
+curl -sS -X POST http://127.0.0.1:4000/videos/uploads \
   -H 'content-type: application/json' \
   -d '{"filename":"sample.mp4","contentType":"video/mp4","sizeBytes":123456}'
 
 curl -X PUT '<upload.url from response>' \
   -H 'content-type: video/mp4' --upload-file ./input/sample.mp4
 
-curl -X POST http://127.0.0.1:3000/videos/<videoId>/upload-complete
-curl http://127.0.0.1:3000/videos/<videoId>
+curl -X POST http://127.0.0.1:4000/videos/<videoId>/upload-complete
+curl http://127.0.0.1:4000/videos/<videoId>
 ```
 
 The declared size must exactly match the uploaded object's size. Confirmation is idempotent and concurrent confirmations coalesce to one Hatchet submission. The previous multipart `POST /videos` upload is intentionally removed; clients must use the presigned flow.
 
-Other routes are `GET /videos`, `GET /player/{videoId}`, `GET /streams/{videoId}/master.m3u8`, `GET /auth/me`, `GET /health/live`, and `GET /health/ready`.
+Other API routes are `GET /videos`, `GET /streams/{videoId}/master.m3u8`, `GET /auth/me`, `GET /health/live`, and `GET /health/ready`. The React routes are `/` and `/player/[id]`.
 
 The bucket remains private. Playback goes through the API, which requires a completed record and only serves the master, known rendition playlists, and numbered transport-stream segments under that video's published prefix.
 
@@ -156,7 +161,7 @@ For the retry demonstration, start the API with `FORCE_720P_FAILURE_ONCE=true`; 
 - SQLite is still a single-node API persistence choice, although workers do not access it or share media directories.
 - The FFmpeg semaphore is per worker process, not distributed.
 - Stronger content inspection, object lifecycle policies, multipart-resume UX, CDN delivery, and distributed admission control remain future work.
-- hls.js is loaded from jsDelivr when native HLS is unavailable.
+- The frontend and Fastify API deploy as separate processes; a Vercel deployment would host Next.js while the API, worker, SQLite replacement, and object storage require persistent infrastructure.
 - A crash after Hatchet accepts a run but before the API records its run ID remains ambiguous; reconciliation deliberately does not guess through it.
 
 ## Delivery history
@@ -167,5 +172,6 @@ The Git history intentionally demonstrates product evolution rather than one lar
 2. Phase 2 added the Fastify API, SQLite status projection, safe HLS proxy, and reconciliation.
 3. Phase 3 removed shared-media filesystem coupling with S3-compatible storage, direct uploads, isolated scratch space, staging publication, and cleanup.
 4. The product layer added Supabase identity, per-user authorization, a complete upload workspace, processing UX, and polished playback.
+5. The frontend migration separated the product into a Next.js/React application and a focused Fastify API, with local shadcn/ui-style components and same-origin proxying.
 
 Run `git log --oneline --reverse` to walk through the implementation story.
