@@ -50,7 +50,7 @@ export class VideoRepository {
   readonly database: DatabaseSync;
   constructor(databasePath: string, private readonly now: () => string = () => new Date().toISOString()) {
     this.database = new DatabaseSync(databasePath);
-    this.database.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
+    this.database.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
   }
 
   close(): void { this.database.close(); }
