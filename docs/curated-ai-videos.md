@@ -1,18 +1,27 @@
-# Curated AI-video showcase
+# Curated AI-film showcase
 
-The discovery page seeds ten attributed external works. Frameflow links to the original publisher rather than downloading or rehosting their media.
+The discovery page contains ten finished films from their original public watch pages. Frameflow does not generate, download, or rehost these works. Every card uses public artwork from YouTube or Vimeo, links directly to the complete film, and preserves creator and tool attribution.
 
-The collection includes:
+## The ten films
 
-1. **The Frost** — Josh Rubin / Waymark, an early generative science-fiction production.
-2. **Creating an AI Short Film** — Runway’s narrative filmmaking workflow.
-3. **Air Head** — shy kids’ playful Sora short.
-4. **Dear “Stranger”** — a Google Flow TV selection made with Veo.
-5. **Get Me Out / 囚われて** — Daniel Antebi, Runway AIFF 2024.
-6. **Pounamu** — Samuel Schrag, Runway AIFF 2024.
-7. **e^(i*π) + 1 = 0** — Junie Lau, Runway AIFF 2024.
-8. **Where Do Grandmas Go When They Get Lost?** — Léo Cannone, Runway AIFF 2024.
-9. **Total Pixel Space** — Jacob Adler, Runway AI Film Festival.
-10. **Jailbird** — Andrew Salter, Runway AI Film Festival.
+1. **[LILY](https://www.youtube.com/watch?v=f2d40eY7P1s)** — Zoubeir Jlassi — 2026 Global AI Film Award Grand Prize; made with Google Veo, Flow, and Gemini.
+2. **[Total Pixel Space](https://www.youtube.com/watch?v=zpAeygE4d1A)** — Jacob Adler — Runway AI Film Festival 2025 Grand Prix.
+3. **[Get Me Out / 囚われて](https://www.youtube.com/watch?v=2bLRFmZle64)** — Daniel Antebi — Runway AI Film Festival 2024 Grand Prix; made with Luma, Runway, and ComfyUI.
+4. **[Generation](https://vimeo.com/750931199)** — Riccardo Fusetti — Runway AI Film Festival 2023 Grand Prix and Venice Film Week Best Animated Short; made with Disco Diffusion and extensive human compositing.
+5. **[The Frost](https://www.youtube.com/watch?v=DNyxZi9Gp_4)** — Josh Rubin / Waymark — landmark long-form AI film made with DALL·E 2 and D-ID.
+6. **[JAILBIRD](https://www.youtube.com/watch?v=-87zR06PkOc)** — Andrew Salter — Runway AI Film Festival 2025 Gold; made with Sora.
+7. **[air head](https://www.youtube.com/watch?v=G4wJ4WeJrz4)** — shy kids — a landmark finished narrative from the first Sora filmmaker preview.
+8. **[Pounamu](https://www.youtube.com/watch?v=PbZ8L5EDq9U)** — Samuel Schrag — Runway AI Film Festival 2024 Gold.
+9. **[e^(i*π) + 1 = 0](https://www.youtube.com/watch?v=yli8f4ddgRU)** — Junie Lau — Runway AI Film Festival 2024 Silver.
+10. **[Where Do Grandmas Go When They Get Lost?](https://www.youtube.com/watch?v=dRFuTIjkiSg)** — Léo Cannone — Runway AI Film Festival 2024 honoree; made with Midjourney and Runway.
 
-Primary collection sources are [Runway’s AI Film Festival archive](https://aif.runwayml.com/2024), [Google Flow TV](https://labs.google/flow/tv/short-films?i=dear-stranger), and the creators’ original YouTube or showcase pages. Entries intentionally retain source attribution, model/tool information when known, and outbound source URLs.
+## Selection standard
+
+- One specific, complete film per card—never a tutorial, prompt test, compilation, festival index, or product homepage.
+- A direct creator or official-channel watch page with a working embed and real 16:9 artwork.
+- Verified creator attribution and disclosed AI provenance; no guessed model names.
+- A strong quality signal such as a major festival prize, jury recognition, or lasting editorial significance.
+- Cinematic value beyond model novelty: story, direction, editing, sound, and visual coherence.
+- Variety across year, creator, genre, tone, runtime, and production approach.
+
+Festival claims are cross-checked against the official [Runway screening room](https://aif.runwayml.com/screening-room), the [Runway 2024 archive](https://aif.runwayml.com/2024), and the official [2026 Global AI Film Award page](https://www.1billionsummit.com/ai-film-award).
