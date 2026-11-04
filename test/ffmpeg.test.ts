@@ -10,7 +10,7 @@ describe("FFmpeg HLS pipeline", () => {
   let outputRoot: string;
 
   beforeAll(async () => {
-    tempRoot = await mkdtemp(path.join(os.tmpdir(), "video-processing-poc-"));
+    tempRoot = await mkdtemp(path.join(os.tmpdir(), "frameflow-"));
     inputPath = path.join(tempRoot, "sample.mp4");
     outputRoot = path.join(tempRoot, "output");
     await runProcess("ffmpeg", [

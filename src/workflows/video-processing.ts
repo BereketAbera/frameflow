@@ -32,7 +32,7 @@ const inputSchema = z.object({
 });
 
 export const videoProcessingWorkflow = hatchet.workflow<VideoProcessingInput>({
-  name: "video-processing-phase-2",
+  name: "frameflow-phase-2",
   inputValidator: inputSchema,
   idempotency: { strategy: "status", expression: "input.videoId", fallbackTtlMs: 86_400_000 },
 });
