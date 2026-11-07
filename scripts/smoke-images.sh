@@ -165,6 +165,7 @@ wait_log "$worker" "Removed 1 stale scratch directory from /scratch" 90 || true
 # for about 13 s before the worker exits, so the checks below still find it running.
 wait_log "$worker" "[ERROR/Admin] Error: [unavailable]" 60 || true
 if docker logs "$worker" 2>&1 | grep -q 'ECONNREFUSED 127.0.0.1:7070'; then pass "the worker dialled the token's engine address"; else fail "the worker never dialled 127.0.0.1:7070"; fi
+# Without an engine there is no health server to probe: the worker starts it only after registration succeeds.
 as_user "$worker"
 no_write_errors "$worker"
 docker rm -f "$worker" >/dev/null
