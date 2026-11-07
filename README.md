@@ -267,7 +267,7 @@ For one video at a time on a shared server, set `FRAMEFLOW_MAX_CONCURRENT_VIDEOS
 
 ## Container images and deployment
 
-The `Dockerfile` builds two images from one dependency stage, for `linux/amd64` and `linux/arm64`, on `node:24.22.2-trixie-slim` pinned by index digest. Both run as the base image's `node` user (uid 1000) and work with a read-only root filesystem. Neither holds an env file: `.dockerignore` keeps every `.env*` out of the build context, so all settings come from the environment.
+The `Dockerfile` builds two images from one dependency stage, for `linux/amd64` and `linux/arm64`, on `node:24.22.2-trixie-slim` pinned by index digest. Its `# syntax=` line pins the Dockerfile frontend, `docker/dockerfile:1.12.1`, by index digest too. Both run as the base image's `node` user (uid 1000) and work with a read-only root filesystem. Neither holds an env file: `.dockerignore` keeps every `.env*` out of the build context, so all settings come from the environment.
 
 ```bash
 docker build --target web -t frameflow-web:local .
@@ -313,7 +313,7 @@ Ports, probes and volumes:
 - `DATABASE_PATH` must be on a persistent volume. SQLite keeps the whole projection in that one file, so run a single API replica and roll it out with the `Recreate` strategy, which never runs two. The cron jobs open the same file, so they mount the same volume, on the same node when it is ReadWriteOnce.
 - Put `WORKER_TEMP_DIR` on an emptyDir with a `sizeLimit`. Each of the worker's `FRAMEFLOW_WORKER_SLOTS` tasks can hold a copy of a source of up to `MAX_UPLOAD_BYTES`, and an encode also holds its rendition's HLS output. The worker clears leftovers there when it starts.
 
-`.github/workflows/images.yml` builds both targets natively for `linux/amd64` on every pull request and runs both scripts on them. On `main` it pushes `ghcr.io/bereketabera/frameflow/web` and `ghcr.io/bereketabera/frameflow/backend`, tagged with the commit's first 12 characters, then pulls each back by digest, runs both scripts on exactly those digests, and scans them with trivy, failing on any CRITICAL vulnerability that has a fix. It records each `image@digest` in the job summary and the `image-digests` artifact, so deploy by digest. A manual run can also build `linux/arm64` under QEMU, without pushing.
+`.github/workflows/images.yml` builds both targets natively for `linux/amd64` on every pull request and runs both scripts on them. On `main` it pushes `ghcr.io/bereketabera/frameflow/web` and `ghcr.io/bereketabera/frameflow/backend`, tagged with the commit's first 12 characters, then pulls each back by digest, runs both scripts on exactly those digests, and scans them with trivy, failing on any CRITICAL vulnerability that has a fix. It records each `image@digest` in the job summary and the `image-digests` artifact, so deploy by digest. A manual run can also build `linux/arm64` under QEMU, without pushing. Every job builds with the BuildKit image that the workflow's `BUILDKIT_IMAGE` pins by index digest, not the floating tag `docker/setup-buildx-action` would pull. On `main`, trivy and its database download before the build, so a failed download stops the job before anything is pushed.
 
 The production deployment configuration for these images, from the namespace and its quotas to the network policies, services, probes and volumes, lives in the plane-platform repository, not here.
 
