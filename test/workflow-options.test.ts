@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { resolveExecutionTimeout, resolveScheduleTimeout } from "@hatchet-dev/typescript-sdk/v1/client/worker/worker-internal.js";
+import { ConcurrencyLimitStrategy, type Concurrency } from "@hatchet-dev/typescript-sdk/v1/index.js";
+import { mapConcurrencyPb, resolveExecutionTimeout, resolveScheduleTimeout } from "@hatchet-dev/typescript-sdk/v1/client/worker/worker-internal.js";
 
 // A client built from an unsigned token carrying only the claims the SDK parses; declaring workflows never contacts an engine.
 vi.mock("../src/hatchet-client.js", async () => {
@@ -33,5 +34,17 @@ describe("phase-3 workflow options", () => {
       publish: ["15m", "12h"], complete: ["2m", "12h"], fail: ["2m", "12h"],
     });
     expect(Object.values((await phase3({ FRAMEFLOW_SCHEDULE_TIMEOUT: "1h30m" })).timeouts).every(([, schedule]) => schedule === "1h30m")).toBe(true);
+  });
+
+  it("registers no concurrency limit unless FRAMEFLOW_MAX_CONCURRENT_VIDEOS is set", async () => {
+    expect((await phase3()).definition.concurrency).toBeUndefined();
+  });
+
+  it("queues videos beyond FRAMEFLOW_MAX_CONCURRENT_VIDEOS instead of cancelling them", async () => {
+    const { definition } = await phase3({ FRAMEFLOW_MAX_CONCURRENT_VIDEOS: "1" });
+    expect(ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN).toBe(3);
+    expect(definition.concurrency).toEqual([{ expression: "'frameflow'", maxRuns: 1, limitStrategy: ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN }]);
+    // The SDK registers an array as the workflow's concurrencyArr (a single object would use the deprecated concurrency field).
+    expect(mapConcurrencyPb(definition.concurrency as Concurrency[])).toEqual([{ expression: "'frameflow'", maxRuns: 1, limitStrategy: 3 }]);
   });
 });
