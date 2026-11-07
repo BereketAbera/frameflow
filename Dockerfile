@@ -43,6 +43,14 @@ RUN mkdir -p public && npm run build
 FROM base AS web
 LABEL org.opencontainers.image.title="frameflow-web" \
       org.opencontainers.image.description="Frameflow Next.js server (standalone output)"
+# The pinned base holds Debian's packages only as new as its last rebuild, and images.yml fails the publish when trivy
+# finds a CRITICAL vulnerability that has a fix, as it did for the static sites' nginx base. So every build takes the
+# release's security updates rather than wait for a new base image. CI builds with no cache from earlier runs, so each
+# of its builds gets the updates published by then.
+RUN apt-get update \
+  && apt-get upgrade -y --no-install-recommends \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \
@@ -65,10 +73,13 @@ FROM base AS backend
 LABEL org.opencontainers.image.title="frameflow-backend" \
       org.opencontainers.image.description="Frameflow API, Hatchet worker and maintenance commands, with FFmpeg"
 # Debian's own builds, from the release the base image pins. Their versions are not pinned, so a rebuild takes the
-# release's security updates, and a version pin would fail the build once the mirrors drop that version.
+# release's security updates, and a version pin would fail the build once the mirrors drop that version. The upgrade
+# takes the same updates for the base image's own packages, as in the web stage.
 # hadolint ignore=DL3008
 RUN apt-get update \
+  && apt-get upgrade -y --no-install-recommends \
   && apt-get install -y --no-install-recommends ca-certificates ffmpeg tini \
+  && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 # HOST: listen beyond the container's loopback. DOTENV_CONFIG_QUIET: the image has no .env, and settings come from the
 # environment, so dotenv need not announce that it loaded nothing.
