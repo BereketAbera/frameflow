@@ -83,6 +83,13 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
   };
 }
 
+/** With more slots than MAX_CONCURRENT_ENCODES, an encode can wait for FFmpeg after Hatchet started it, inside its execution timeout. */
+export function encodeLimitWarning(slots: number, maxConcurrentEncodes: number): string | undefined {
+  if (slots <= maxConcurrentEncodes) return undefined;
+  return `FRAMEFLOW_WORKER_SLOTS=${slots} is above MAX_CONCURRENT_ENCODES=${maxConcurrentEncodes}: an encode that waits for FFmpeg has already started, so the wait counts against its execution timeout. `
+    + `Raise MAX_CONCURRENT_ENCODES to ${slots}, or lower FRAMEFLOW_WORKER_SLOTS so that encodes wait in Hatchet's queue instead.`;
+}
+
 export function authModeOf(config: Pick<AppConfig, "supabase" | "owner">): AuthMode {
   return config.owner ? "owner" : config.supabase ? "supabase" : "local";
 }
