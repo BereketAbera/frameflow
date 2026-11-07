@@ -137,9 +137,27 @@ MinIO defaults to `http://127.0.0.1:9000` with its console on port `9001`. If th
 
 ### Authentication modes
 
-- With `SUPABASE_URL` and `SUPABASE_ANON_KEY` unset, Frameflow runs as a single `local-development` user.
-- With both values configured, the app enables email/password sign-in and sign-up through Supabase and establishes an HTTP-only, same-site application session.
+- With `AUTH_MODE`, `SUPABASE_URL` and `SUPABASE_ANON_KEY` unset, Frameflow runs as a single `local-development` user.
+- With both Supabase values configured, the app enables email/password sign-in and sign-up through Supabase and establishes an HTTP-only, same-site application session. `AUTH_MODE=supabase` makes those values mandatory.
+- `AUTH_MODE=owner` is for a public demo: visitors can browse the feed, watch pages, profiles and public streams but cannot upload, delete, comment, like, save or see private videos. Only the holder of the owner access key can use the studio (see below). It cannot be combined with Supabase, and the API refuses to start if it is misconfigured.
 - Never put a Supabase service-role key in this project; only the public anon key belongs in `SUPABASE_ANON_KEY`.
+
+### Owner access key
+
+The API stores only the key's SHA-256 digest. Signing in exchanges the key for an expiring, HMAC-signed `vp_session` cookie, so the browser never stores the key itself.
+
+```bash
+umask 077                                                           # key files readable only by you
+openssl rand -base64 32 | tr -d '\n' > ~/.frameflow-owner-key       # the owner access key
+shasum -a 256 ~/.frameflow-owner-key | cut -d ' ' -f 1              # OWNER_TOKEN_SHA256 (sha256sum on Linux)
+openssl rand -base64 48 | tr -d '\n' > ~/.frameflow-session-secret  # OWNER_SESSION_SECRET
+```
+
+- `tr -d '\n'` drops the newline `openssl` prints. A digest of a file ending in a newline never matches the key you paste.
+- Put `AUTH_MODE=owner`, `OWNER_TOKEN_SHA256` and `OWNER_SESSION_SECRET` in the API's environment, for example a Kubernetes Secret. Run the API with `NODE_ENV=production` behind HTTPS so the cookie is `Secure`.
+- Sign in at `/studio` by pasting the contents of the key file. Scripts can send `Authorization: Bearer <key>` instead.
+- Never paste the key into shared logs, chats, tickets or command history. Read it from the file, for example `curl -H "Authorization: Bearer $(cat ~/.frameflow-owner-key)" …`.
+- Sessions are stateless. Rotating `OWNER_SESSION_SECRET` signs every browser out. Replacing the key only stops new sign-ins with the old key.
 
 ## Local routes
 
@@ -175,7 +193,7 @@ npm run verify
 npm audit
 ```
 
-`npm run verify` executes TypeScript validation, the Vitest suite, and a production Next.js build. The current suite covers authentication and cross-user isolation, upload validation and idempotency, private HLS allowlisting, storage readiness, isolated worker scratch space, bounded staged uploads, master-last publication, reconciliation, cleanup, terminal transitions, curated-film data, and playable FFmpeg output.
+`npm run verify` executes TypeScript validation, the Vitest suite, and a production Next.js build. The current suite covers authentication and cross-user isolation, owner-only access, upload validation and idempotency, private HLS allowlisting, storage readiness, isolated worker scratch space and its startup cleanup, task cancellation of FFmpeg and storage transfers, workflow timeouts and concurrency, bounded staged uploads, master-last publication, reconciliation, cleanup, terminal transitions, curated-film data, and playable FFmpeg output.
 
 The checked-in GitHub Actions workflow runs the same verification and a high-severity dependency audit on pushes and pull requests.
 
@@ -212,9 +230,12 @@ For the retry demonstration, start the API with `FORCE_720P_FAILURE_ONCE=true`. 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PORT` | `4000` | Fastify API port |
-| `API_ORIGIN` | `http://127.0.0.1:4000` | Next.js API rewrite target |
+| `HOST` | `127.0.0.1` | Fastify bind address; containers use `0.0.0.0` |
+| `API_ORIGIN` | `http://127.0.0.1:4000` | Next.js API rewrite target. Build-time: `next build` bakes it into the rewrites |
+| `NEXT_OUTPUT` | unset | `standalone` at build time emits `.next/standalone/server.js` for container images |
 | `DATABASE_PATH` | `./data/app.db` | Local SQLite projection |
 | `S3_ENDPOINT` | `http://127.0.0.1:9000` | S3-compatible endpoint |
+| `S3_PUBLIC_ENDPOINT` | unset | Bare public origin that browser upload URLs are signed for; server calls keep using `S3_ENDPOINT` |
 | `S3_REGION` | `us-east-1` | Object-storage region |
 | `S3_BUCKET` | `frameflow` | Private media bucket |
 | `S3_FORCE_PATH_STYLE` | `true` | Required for local MinIO |
@@ -226,13 +247,28 @@ For the retry demonstration, start the API with `FORCE_720P_FAILURE_ONCE=true`. 
 | `WORKER_CALLBACK_SECRET` | development value | Callback authentication |
 | `SUPABASE_URL` | unset | Enables Supabase when paired with anon key |
 | `SUPABASE_ANON_KEY` | unset | Supabase public browser key |
+| `AUTH_MODE` | unset | Unset: Supabase if configured, else local user. `supabase`: Supabase required. `owner`: read-only site with one owner |
+| `OWNER_TOKEN_SHA256` | none (owner mode) | Hex SHA-256 digest of the owner access key |
+| `OWNER_SESSION_SECRET` | none (owner mode) | At least 32 characters; signs owner session cookies |
+| `OWNER_USER_ID` | `local-development` | User ID the owner acts as for uploads, comments and likes |
+| `OWNER_SESSION_MAX_AGE_SECONDS` | `43200` | Owner session lifetime, at most 400 days |
+| `FRAMEFLOW_WORKER_SLOTS` | `2` | Hatchet slots: tasks one worker runs at once |
+| `FRAMEFLOW_MAX_CONCURRENT_VIDEOS` | unset | When set, at most N videos process at once; the rest wait in Hatchet's queue |
+| `FRAMEFLOW_SCHEDULE_TIMEOUT` | `12h` | How long a task may wait to be scheduled, including in that queue |
+| `FRAMEFLOW_REGISTER_LEGACY_WORKFLOW` | `true` | `false` skips registering the filesystem workflow `frameflow-phase-2` |
+| `FFMPEG_THREADS` | unset | Passes `-threads N` to every rendition encode |
+| `FFMPEG_LOG_LEVEL` | unset | Adds `-nostats -loglevel <level>`, for example `error`, for quieter worker logs |
 
 For AWS S3, omit `S3_ENDPOINT`, provide the appropriate credentials and region, and normally set `S3_FORCE_PATH_STYLE=false`.
+
+For one video at a time on a shared server, set `FRAMEFLOW_MAX_CONCURRENT_VIDEOS=1` on the worker. Use `FRAMEFLOW_WORKER_SLOTS` and `MAX_CONCURRENT_ENCODES` to choose whether its 360p and 720p encodes run in parallel. The worker removes leftover `probe-`, `encode-` and `publish-` directories from `WORKER_TEMP_DIR` when it starts, so do not share that directory between running workers.
+
+`next build` with `NEXT_OUTPUT=standalone` copies the project's `.env` into `.next/standalone`. Build images from a context that excludes `.env`.
 
 ## Current limits and hosting path
 
 - SQLite is intentionally a single-node local persistence choice; a hosted version should use managed Postgres.
-- The FFmpeg semaphore is per worker process rather than distributed.
+- The FFmpeg semaphore is per worker process rather than distributed; `FRAMEFLOW_MAX_CONCURRENT_VIDEOS` limits whole videos across workers through Hatchet.
 - Stronger content inspection, resumable multipart uploads, CDN delivery, object lifecycle policies, and distributed admission control remain future work.
 - A Vercel deployment can host the Next.js application, while the Fastify API, Hatchet worker, durable database, and object storage require persistent infrastructure.
 - Chromium desktop and responsive mobile playback are verified locally; production release should add a real iOS Safari device pass.
