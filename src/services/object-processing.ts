@@ -1,3 +1,4 @@
+import type { Dirent } from "node:fs";
 import { mkdtemp, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ObjectStorage, ObjectMetadata } from "../storage/object-storage.js";
@@ -6,7 +7,11 @@ import { throwIfAborted } from "./abort.js";
 
 const typeFor=(name:string)=>name.endsWith(".m3u8")?"application/vnd.apple.mpegurl":"video/mp2t";
 async function mapBounded<T>(items:T[],limit:number,fn:(x:T)=>Promise<void>,signal?:AbortSignal){let next=0;await Promise.all(Array.from({length:Math.min(limit,items.length)},async()=>{while(next<items.length){throwIfAborted(signal);const item=items[next++]!;await fn(item);}}));}
-export async function withScratch<T>(root:string,label:string,fn:(dir:string)=>Promise<T>):Promise<T>{await mkdir(root,{recursive:true});const dir=await mkdtemp(path.join(root,`${label}-`));try{return await fn(dir);}finally{await rm(dir,{recursive:true,force:true});}}
+/** Every withScratch directory starts with one of these, which is what lets removeStaleScratch find leftovers. */
+export const scratchPrefixes=["probe-","encode-","publish-"] as const;
+export async function withScratch<T>(root:string,label:string,fn:(dir:string)=>Promise<T>):Promise<T>{if(!scratchPrefixes.some(prefix=>`${label}-`.startsWith(prefix)))throw new Error(`Unknown scratch label: ${label}`);await mkdir(root,{recursive:true});const dir=await mkdtemp(path.join(root,`${label}-`));try{return await fn(dir);}finally{await rm(dir,{recursive:true,force:true});}}
+/** Removes scratch directories a previous worker process left directly inside root (a killed pod, a crash). Run it before the worker takes work, and never share root between running workers. Files, symlinks, other names and anything nested are left alone. */
+export async function removeStaleScratch(root:string):Promise<number>{let entries:Dirent[];try{entries=await readdir(root,{withFileTypes:true});}catch(error){if((error as NodeJS.ErrnoException).code==="ENOENT")return 0;throw error;}const stale=entries.filter(entry=>entry.isDirectory()&&scratchPrefixes.some(prefix=>entry.name.startsWith(prefix)));await Promise.all(stale.map(entry=>rm(path.join(root,entry.name),{recursive:true,force:true})));return stale.length;}
 // The signal (a Hatchet task's cancellation) reaches downloads, FFmpeg/ffprobe and uploads; withScratch still removes the scratch directory.
 export async function probeObject(storage:ObjectStorage,key:string,scratchRoot:string,signal?:AbortSignal):Promise<VideoMetadata>{return withScratch(scratchRoot,"probe",async dir=>{const source=path.join(dir,"source.mp4");await storage.downloadToFile(key,source,signal);return probeVideo(source,undefined,signal);});}
 export type StagedRendition={name:RenditionName;width:number;height:number;bandwidth:number;objects:ObjectMetadata[];stagingPrefix:string};

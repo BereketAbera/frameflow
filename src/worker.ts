@@ -1,10 +1,15 @@
 import { hatchet } from "./hatchet-client.js";
-import { loadWorkerConfig } from "./config.js";
+import { loadConfig, loadWorkerConfig } from "./config.js";
+import { removeStaleScratch } from "./services/object-processing.js";
 import { videoProcessingWorkflow } from "./workflows/video-processing.js";
 import { objectVideoWorkflow } from "./workflows/object-video-processing.js";
 
 async function main(): Promise<void> {
+  const { workerTempDir } = loadConfig();
   const settings = loadWorkerConfig();
+  // Nothing runs yet, so prefixed scratch directories left in WORKER_TEMP_DIR belong to a previous, interrupted worker.
+  const removed = await removeStaleScratch(workerTempDir);
+  console.log(`Removed ${removed} stale scratch ${removed === 1 ? "directory" : "directories"} from ${workerTempDir}`);
   const workflows = settings.registerLegacyWorkflow ? [videoProcessingWorkflow, objectVideoWorkflow] : [objectVideoWorkflow];
   const worker = await hatchet.worker("frameflow-worker", {
     workflows,
