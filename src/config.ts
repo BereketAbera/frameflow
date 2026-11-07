@@ -50,6 +50,25 @@ function ownerConfig(env: NodeJS.ProcessEnv): OwnerAuthConfig {
   return { tokenSha256, sessionSecret, userId, sessionMaxAgeSeconds };
 }
 
+/** Settings read only by the Hatchet worker and the workflows it registers. */
+export type WorkerConfig = {
+  /** Go-style duration a task may wait to be scheduled before Hatchet fails it. */
+  scheduleTimeout: string;
+};
+
+function goDuration(value: string | undefined, fallback: string, name: string): string {
+  const text = value?.trim() || fallback;
+  const parts = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/.exec(text);
+  if (!parts || !parts.slice(1).some((part) => Number(part) > 0)) throw new Error(`${name} must be a positive duration such as 12h, 90m, or 1h30m`);
+  return text;
+}
+
+export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
+  return {
+    scheduleTimeout: goDuration(env.FRAMEFLOW_SCHEDULE_TIMEOUT, "12h", "FRAMEFLOW_SCHEDULE_TIMEOUT"),
+  };
+}
+
 export function authModeOf(config: Pick<AppConfig, "supabase" | "owner">): AuthMode {
   return config.owner ? "owner" : config.supabase ? "supabase" : "local";
 }
