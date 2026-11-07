@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ConcurrencyLimitStrategy, type Concurrency } from "@hatchet-dev/typescript-sdk/v1/index.js";
+import { ConcurrencyLimitStrategy, type Concurrency } from "@hatchet-dev/typescript-sdk/v1";
 import { mapConcurrencyPb, resolveExecutionTimeout, resolveScheduleTimeout } from "@hatchet-dev/typescript-sdk/v1/client/worker/worker-internal.js";
 
 // A client built from an unsigned token carrying only the claims the SDK parses; declaring workflows never contacts an engine.
 vi.mock("../src/hatchet-client.js", async () => {
-  const { HatchetClient } = await import("@hatchet-dev/typescript-sdk/v1/index.js");
+  const { HatchetClient } = await import("@hatchet-dev/typescript-sdk/v1");
   const claims = Buffer.from(JSON.stringify({ sub: "test-tenant", server_url: "http://127.0.0.1:9", grpc_broadcast_address: "127.0.0.1:9" })).toString("base64url");
   return { hatchet: HatchetClient.init({ token: `e30.${claims}.unsigned`, host_port: "127.0.0.1:9", api_url: "http://127.0.0.1:9", tls_config: { tls_strategy: "none" } }) };
 });

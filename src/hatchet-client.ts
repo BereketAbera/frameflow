@@ -1,4 +1,4 @@
 import "dotenv/config";
-import { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
+import { HatchetClient } from "@hatchet-dev/typescript-sdk/v1";
 
 export const hatchet = HatchetClient.init();

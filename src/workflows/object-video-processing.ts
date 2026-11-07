@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ConcurrencyLimitStrategy, type Duration } from "@hatchet-dev/typescript-sdk/v1/index.js";
+import { ConcurrencyLimitStrategy, type Duration } from "@hatchet-dev/typescript-sdk/v1";
 import { hatchet } from "../hatchet-client.js";
 import { loadConfig, loadWorkerConfig } from "../config.js";
 import { createObjectStorage } from "../storage/create-storage.js";
