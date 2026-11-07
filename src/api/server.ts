@@ -14,7 +14,7 @@ async function main(): Promise<void> {
     ...(config.supabase ? { authVerifier: new SupabaseAuthVerifier(config.supabase) } : {}),
     logger: true,
   });
-  await app.listen({ port: config.port, host: "127.0.0.1" });
+  await app.listen({ port: config.port, host: config.host });
 }
 
 main().catch((error: unknown) => { console.error("API failed:", error); process.exitCode = 1; });
