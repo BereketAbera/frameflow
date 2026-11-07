@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { loadConfig } from "../src/config.js";
+import { authModeOf, loadConfig } from "../src/config.js";
 
 const env = (vars: Record<string, string> = {}) => vars as unknown as NodeJS.ProcessEnv;
 
@@ -21,5 +22,45 @@ describe("configuration", () => {
     expect(loadConfig(env({ S3_PUBLIC_ENDPOINT: "https://frameflow.bereket.dev/" })).s3.publicEndpoint).toBe("https://frameflow.bereket.dev");
     expect(() => loadConfig(env({ S3_PUBLIC_ENDPOINT: "https://frameflow.bereket.dev/storage" }))).toThrow(/without a path/);
     expect(() => loadConfig(env({ S3_PUBLIC_ENDPOINT: "frameflow.bereket.dev" }))).toThrow(/S3_PUBLIC_ENDPOINT/);
+  });
+
+  describe("AUTH_MODE", () => {
+    const supabase = { SUPABASE_URL: "https://example.supabase.co/", SUPABASE_ANON_KEY: "public-anon-key" };
+    const owner = { AUTH_MODE: "owner", OWNER_TOKEN_SHA256: "A".repeat(64), OWNER_SESSION_SECRET: "x".repeat(32) };
+
+    it("keeps today's automatic selection when unset", () => {
+      expect(authModeOf(loadConfig(env()))).toBe("local");
+      expect(loadConfig(env(supabase)).supabase).toEqual({ url: "https://example.supabase.co", anonKey: "public-anon-key" });
+      expect(authModeOf(loadConfig(env(supabase)))).toBe("supabase");
+    });
+
+    it("requires the Supabase variables for AUTH_MODE=supabase", () => {
+      expect(() => loadConfig(env({ AUTH_MODE: "supabase" }))).toThrow(/AUTH_MODE=supabase requires/);
+      expect(authModeOf(loadConfig(env({ AUTH_MODE: "supabase", ...supabase })))).toBe("supabase");
+    });
+
+    it("loads owner mode with defaults and fails fast when it is misconfigured", () => {
+      expect(loadConfig(env(owner)).owner).toEqual({ tokenSha256: "a".repeat(64), sessionSecret: "x".repeat(32), userId: "local-development", sessionMaxAgeSeconds: 43_200 });
+      expect(loadConfig(env({ ...owner, OWNER_USER_ID: "owner-1", OWNER_SESSION_MAX_AGE_SECONDS: "3600" })).owner).toMatchObject({ userId: "owner-1", sessionMaxAgeSeconds: 3600 });
+      expect(() => loadConfig(env({ ...owner, OWNER_TOKEN_SHA256: "" }))).toThrow(/OWNER_TOKEN_SHA256/);
+      expect(() => loadConfig(env({ ...owner, OWNER_TOKEN_SHA256: "a".repeat(63) }))).toThrow(/OWNER_TOKEN_SHA256/);
+      expect(() => loadConfig(env({ ...owner, OWNER_TOKEN_SHA256: "g".repeat(64) }))).toThrow(/OWNER_TOKEN_SHA256/);
+      expect(() => loadConfig(env({ ...owner, OWNER_SESSION_SECRET: "x".repeat(31) }))).toThrow(/OWNER_SESSION_SECRET/);
+      expect(() => loadConfig(env({ ...owner, OWNER_USER_ID: "../owner" }))).toThrow(/OWNER_USER_ID/);
+      expect(() => loadConfig(env({ ...owner, OWNER_SESSION_MAX_AGE_SECONDS: "0" }))).toThrow(/OWNER_SESSION_MAX_AGE_SECONDS/);
+      expect(loadConfig(env({ ...owner, OWNER_SESSION_MAX_AGE_SECONDS: String(400 * 86_400) })).owner?.sessionMaxAgeSeconds).toBe(34_560_000);
+      expect(() => loadConfig(env({ ...owner, OWNER_SESSION_MAX_AGE_SECONDS: String(400 * 86_400 + 1) }))).toThrow(/at most 34560000/);
+      expect(() => loadConfig(env({ ...owner, OWNER_TOKEN_SHA256: createHash("sha256").update("").digest("hex") }))).toThrow(/empty input/);
+      expect(() => loadConfig(env({ ...owner, ...supabase }))).toThrow(/cannot be combined/);
+      expect(() => loadConfig(env({ ...owner, SUPABASE_URL: supabase.SUPABASE_URL }))).toThrow(/cannot be combined/);
+      expect(authModeOf(loadConfig(env({ ...owner, AUTH_MODE: " Owner " })))).toBe("owner");
+    });
+
+    it("rejects unknown modes and owner secrets without owner mode", () => {
+      expect(() => loadConfig(env({ AUTH_MODE: "public" }))).toThrow(/AUTH_MODE must be/);
+      expect(() => loadConfig(env({ AUTH_MODE: "local" }))).toThrow(/AUTH_MODE must be/);
+      expect(() => loadConfig(env({ OWNER_TOKEN_SHA256: owner.OWNER_TOKEN_SHA256 }))).toThrow(/only used with AUTH_MODE=owner/);
+      expect(() => loadConfig(env({ AUTH_MODE: "supabase", ...supabase, OWNER_SESSION_SECRET: owner.OWNER_SESSION_SECRET }))).toThrow(/only used with AUTH_MODE=owner/);
+    });
   });
 });
