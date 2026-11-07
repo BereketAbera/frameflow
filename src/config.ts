@@ -10,7 +10,7 @@ export type AppConfig = {
   reconciliationStaleMinutes: number;
   maxConcurrentEncodes: number;
   workerTempDir: string;
-  s3: { endpoint?: string; region: string; bucket: string; accessKeyId: string; secretAccessKey: string; forcePathStyle: boolean; presignedUploadTtlSeconds: number };
+  s3: { endpoint?: string; publicEndpoint?: string; region: string; bucket: string; accessKeyId: string; secretAccessKey: string; forcePathStyle: boolean; presignedUploadTtlSeconds: number };
   statusCallbackBaseUrl?: string; workerCallbackSecret: string;
   supabase?: { url: string; anonKey: string };
 };
@@ -20,6 +20,14 @@ function positiveInteger(value: string | undefined, fallback: number, name: stri
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`${name} must be a positive integer`);
   return parsed;
+}
+
+/** Presigned URLs sign the request path, so a public storage endpoint must be a bare origin that is routed to the bucket unchanged. */
+function publicOrigin(value: string, name: string): string {
+  let url: URL;
+  try { url = new URL(value.trim()); } catch { throw new Error(`${name} must be an http(s) origin such as https://media.example.com`); }
+  if (!/^https?:$/.test(url.protocol) || url.pathname !== "/" || url.search || url.hash || url.username || url.password) throw new Error(`${name} must be an http(s) origin without a path, query, or credentials`);
+  return url.origin;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): AppConfig {
@@ -36,7 +44,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
     maxConcurrentEncodes: positiveInteger(env.MAX_CONCURRENT_ENCODES, 2, "MAX_CONCURRENT_ENCODES"),
     workerTempDir: path.resolve(env.WORKER_TEMP_DIR ?? path.join(cwd, ".worker-tmp")),
     s3: {
-      endpoint: env.S3_ENDPOINT || "http://127.0.0.1:9000", region: env.S3_REGION || "us-east-1", bucket: env.S3_BUCKET || "frameflow",
+      // An absent S3_ENDPOINT keeps the local MinIO default; an explicitly empty one selects the AWS SDK's regional endpoint.
+      endpoint: env.S3_ENDPOINT === undefined ? "http://127.0.0.1:9000" : env.S3_ENDPOINT.trim() || undefined,
+      ...(env.S3_PUBLIC_ENDPOINT?.trim() ? { publicEndpoint: publicOrigin(env.S3_PUBLIC_ENDPOINT, "S3_PUBLIC_ENDPOINT") } : {}),
+      region: env.S3_REGION || "us-east-1", bucket: env.S3_BUCKET || "frameflow",
       accessKeyId: env.S3_ACCESS_KEY_ID || "minioadmin", secretAccessKey: env.S3_SECRET_ACCESS_KEY || "minioadmin",
       forcePathStyle: !/^(false|0)$/i.test(env.S3_FORCE_PATH_STYLE ?? "true"),
       presignedUploadTtlSeconds: positiveInteger(env.S3_PRESIGNED_UPLOAD_TTL_SECONDS, 600, "S3_PRESIGNED_UPLOAD_TTL_SECONDS"),
