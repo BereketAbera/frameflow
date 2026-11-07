@@ -1,11 +1,15 @@
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { migrateDatabase } from "../src/db/migrate.js";
 import { VideoRepository } from "../src/db/video-repository.js";
 import { reconcileVideos, type RunInspector, type InspectedRun } from "../src/services/reconciliation.js";
 import { FakeObjectStorage } from "../src/storage/fake-storage.js";
+
+// These tests inspect runs through FakeInspector. The real client module would load .env and require HATCHET_CLIENT_TOKEN on import,
+// which a clean checkout such as CI does not have.
+vi.mock("../src/hatchet-client.js", () => ({ hatchet: {} }));
 
 class FakeInspector implements RunInspector {
   constructor(private readonly runs: Record<string, InspectedRun>) {}
