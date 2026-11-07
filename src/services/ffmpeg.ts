@@ -171,20 +171,19 @@ async function publishDirectory(tempDir: string, finalDir: string): Promise<void
   }
 }
 
-export async function encodeRendition(options: {
-  inputPath: string;
-  outputRoot: string;
-  rendition: RenditionName;
-  hasAudio: boolean;
-  log?: ProcessLogger;
-  signal?: AbortSignal;
-}): Promise<RenditionResult> {
-  const config = renditionConfigs[options.rendition];
-  const finalDir = path.join(options.outputRoot, config.name);
-  const tempDir = path.join(options.outputRoot, `.${config.name}-attempt-${randomUUID()}`);
-  await mkdir(tempDir, { recursive: true });
+/** Optional encoder limits; leaving both unset keeps FFmpeg's automatic threading and full log output. */
+export type EncodeSettings = {
+  /** Passed as the output option -threads N, which caps the libx264 encoder's threads. */
+  threads?: number;
+  /** Adds -nostats -loglevel <level>, dropping the progress line FFmpeg rewrites every half second. */
+  logLevel?: string;
+};
 
-  const args = ["-hide_banner", "-y", "-i", options.inputPath, "-map", "0:v:0"];
+export function renditionArgs(options: { inputPath: string; outputDir: string; rendition: RenditionName; hasAudio: boolean } & EncodeSettings): string[] {
+  const config = renditionConfigs[options.rendition];
+  const args = ["-hide_banner"];
+  if (options.logLevel) args.push("-nostats", "-loglevel", options.logLevel);
+  args.push("-y", "-i", options.inputPath, "-map", "0:v:0");
   if (options.hasAudio) args.push("-map", "0:a:0");
   args.push(
     "-vf", `scale=${config.width}:${config.height}:force_original_aspect_ratio=decrease,pad=${config.width}:${config.height}:(ow-iw)/2:(oh-ih)/2`,
@@ -192,12 +191,33 @@ export async function encodeRendition(options: {
     "-b:v", config.videoBitrate, "-maxrate", config.maxRate, "-bufsize", config.bufferSize,
     "-force_key_frames", "expr:gte(t,n_forced*4)", "-sc_threshold", "0",
   );
+  if (options.threads) args.push("-threads", String(options.threads));
   if (options.hasAudio) args.push("-c:a", "aac", "-b:a", config.audioBitrate, "-ac", "2");
   args.push(
     "-f", "hls", "-hls_time", "4", "-hls_playlist_type", "vod",
-    "-hls_flags", "independent_segments", "-hls_segment_filename", path.join(tempDir, "segment-%03d.ts"),
-    path.join(tempDir, "index.m3u8"),
+    "-hls_flags", "independent_segments", "-hls_segment_filename", path.join(options.outputDir, "segment-%03d.ts"),
+    path.join(options.outputDir, "index.m3u8"),
   );
+  return args;
+}
+
+export async function encodeRendition(options: {
+  inputPath: string;
+  outputRoot: string;
+  rendition: RenditionName;
+  hasAudio: boolean;
+  log?: ProcessLogger;
+  signal?: AbortSignal;
+} & EncodeSettings): Promise<RenditionResult> {
+  const config = renditionConfigs[options.rendition];
+  const finalDir = path.join(options.outputRoot, config.name);
+  const tempDir = path.join(options.outputRoot, `.${config.name}-attempt-${randomUUID()}`);
+  await mkdir(tempDir, { recursive: true });
+
+  const args = renditionArgs({
+    inputPath: options.inputPath, outputDir: tempDir, rendition: options.rendition, hasAudio: options.hasAudio,
+    threads: options.threads, logLevel: options.logLevel,
+  });
 
   try {
     await runProcess("ffmpeg", args, options.log, { signal: options.signal });

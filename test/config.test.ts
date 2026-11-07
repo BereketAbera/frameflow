@@ -66,11 +66,11 @@ describe("configuration", () => {
 
   describe("worker settings", () => {
     it("keeps today's worker when nothing is set", () => {
-      expect(loadWorkerConfig(env())).toEqual({ slots: 2, scheduleTimeout: "12h", registerLegacyWorkflow: true });
+      expect(loadWorkerConfig(env())).toEqual({ slots: 2, scheduleTimeout: "12h", registerLegacyWorkflow: true, ffmpeg: {} });
     });
 
     it("reads slots, the video concurrency limit, and legacy registration", () => {
-      expect(loadWorkerConfig(env({ FRAMEFLOW_WORKER_SLOTS: "1", FRAMEFLOW_MAX_CONCURRENT_VIDEOS: "1", FRAMEFLOW_REGISTER_LEGACY_WORKFLOW: "false" }))).toEqual({ slots: 1, maxConcurrentVideos: 1, scheduleTimeout: "12h", registerLegacyWorkflow: false });
+      expect(loadWorkerConfig(env({ FRAMEFLOW_WORKER_SLOTS: "1", FRAMEFLOW_MAX_CONCURRENT_VIDEOS: "1", FRAMEFLOW_REGISTER_LEGACY_WORKFLOW: "false" }))).toEqual({ slots: 1, maxConcurrentVideos: 1, scheduleTimeout: "12h", registerLegacyWorkflow: false, ffmpeg: {} });
       expect(loadWorkerConfig(env({ FRAMEFLOW_WORKER_SLOTS: "", FRAMEFLOW_MAX_CONCURRENT_VIDEOS: " " })).slots).toBe(2);
       expect(loadWorkerConfig(env({ FRAMEFLOW_MAX_CONCURRENT_VIDEOS: " " })).maxConcurrentVideos).toBeUndefined();
       expect(loadWorkerConfig(env({ FRAMEFLOW_REGISTER_LEGACY_WORKFLOW: "FALSE" })).registerLegacyWorkflow).toBe(false);
@@ -78,6 +78,14 @@ describe("configuration", () => {
       for (const [name, value] of [["FRAMEFLOW_WORKER_SLOTS", "0"], ["FRAMEFLOW_WORKER_SLOTS", "two"], ["FRAMEFLOW_MAX_CONCURRENT_VIDEOS", "0"], ["FRAMEFLOW_MAX_CONCURRENT_VIDEOS", "1.5"]] as const) {
         expect(() => loadWorkerConfig(env({ [name]: value })), `${name}=${value}`).toThrow(new RegExp(name));
       }
+    });
+
+    it("reads optional FFmpeg thread and log level limits", () => {
+      expect(loadWorkerConfig(env({ FFMPEG_THREADS: "2", FFMPEG_LOG_LEVEL: " Error " })).ffmpeg).toEqual({ threads: 2, logLevel: "error" });
+      expect(loadWorkerConfig(env({ FFMPEG_THREADS: "", FFMPEG_LOG_LEVEL: "" })).ffmpeg).toEqual({});
+      expect(() => loadWorkerConfig(env({ FFMPEG_THREADS: "0" }))).toThrow(/FFMPEG_THREADS/);
+      expect(() => loadWorkerConfig(env({ FFMPEG_THREADS: "auto" }))).toThrow(/FFMPEG_THREADS/);
+      expect(() => loadWorkerConfig(env({ FFMPEG_LOG_LEVEL: "silent" }))).toThrow(/FFMPEG_LOG_LEVEL must be one of quiet/);
     });
 
     it("defaults the schedule timeout to 12h and accepts Go-style durations", () => {

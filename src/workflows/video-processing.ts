@@ -2,6 +2,7 @@ import { mkdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { hatchet } from "../hatchet-client.js";
+import { loadWorkerConfig } from "../config.js";
 import { encodeRendition, generateMasterPlaylist, probeVideo } from "../services/ffmpeg.js";
 import { encodingSemaphore } from "../services/encoding-semaphore.js";
 import { markWorkflowCompleted, markWorkflowFailed, markWorkflowProcessing } from "../services/status-projection.js";
@@ -80,7 +81,7 @@ export const encode360pTask = videoProcessingWorkflow.task({
     await ctx.log(`Starting 360p encode for ${probed.videoId}`);
     const rendition = await encodingSemaphore.run(() => encodeRendition({
       inputPath: probed.sourcePath, outputRoot: probed.outputPath, rendition: "360p",
-      hasAudio: probed.metadata.hasAudio, log: (message) => ctx.log(`[ffmpeg 360p] ${message}`),
+      hasAudio: probed.metadata.hasAudio, log: (message) => ctx.log(`[ffmpeg 360p] ${message}`), ...loadWorkerConfig().ffmpeg,
     }));
     await ctx.log(`Completed 360p encode for ${probed.videoId}`);
     return { videoId: probed.videoId, ...rendition };
@@ -102,7 +103,7 @@ export const encode720pTask = videoProcessingWorkflow.task({
     }
     const rendition = await encodingSemaphore.run(() => encodeRendition({
       inputPath: probed.sourcePath, outputRoot: probed.outputPath, rendition: "720p",
-      hasAudio: probed.metadata.hasAudio, log: (message) => ctx.log(`[ffmpeg 720p] ${message}`),
+      hasAudio: probed.metadata.hasAudio, log: (message) => ctx.log(`[ffmpeg 720p] ${message}`), ...loadWorkerConfig().ffmpeg,
     }));
     await ctx.log(`Completed 720p encode for ${probed.videoId}`);
     return { videoId: probed.videoId, ...rendition };

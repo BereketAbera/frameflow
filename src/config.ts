@@ -58,7 +58,11 @@ export type WorkerConfig = {
   /** Go-style duration a task may wait to be scheduled before Hatchet fails it, including time spent behind maxConcurrentVideos. */
   scheduleTimeout: string;
   registerLegacyWorkflow: boolean;
+  /** Unset fields leave FFmpeg's own thread count and log output unchanged. */
+  ffmpeg: { threads?: number; logLevel?: string };
 };
+
+const FFMPEG_LOG_LEVELS = ["quiet", "panic", "fatal", "error", "warning", "info", "verbose", "debug", "trace"];
 
 function goDuration(value: string | undefined, fallback: string, name: string): string {
   const text = value?.trim() || fallback;
@@ -68,12 +72,14 @@ function goDuration(value: string | undefined, fallback: string, name: string): 
 }
 
 export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
-  const maxConcurrentVideos = env.FRAMEFLOW_MAX_CONCURRENT_VIDEOS?.trim();
+  const maxConcurrentVideos = env.FRAMEFLOW_MAX_CONCURRENT_VIDEOS?.trim(), threads = env.FFMPEG_THREADS?.trim(), logLevel = env.FFMPEG_LOG_LEVEL?.trim().toLowerCase();
+  if (logLevel && !FFMPEG_LOG_LEVELS.includes(logLevel)) throw new Error(`FFMPEG_LOG_LEVEL must be one of ${FFMPEG_LOG_LEVELS.join(", ")}`);
   return {
     slots: positiveInteger(env.FRAMEFLOW_WORKER_SLOTS?.trim(), 2, "FRAMEFLOW_WORKER_SLOTS"),
     ...(maxConcurrentVideos ? { maxConcurrentVideos: positiveInteger(maxConcurrentVideos, 1, "FRAMEFLOW_MAX_CONCURRENT_VIDEOS") } : {}),
     scheduleTimeout: goDuration(env.FRAMEFLOW_SCHEDULE_TIMEOUT, "12h", "FRAMEFLOW_SCHEDULE_TIMEOUT"),
     registerLegacyWorkflow: !/^(false|0)$/i.test(env.FRAMEFLOW_REGISTER_LEGACY_WORKFLOW?.trim() ?? "true"),
+    ffmpeg: { ...(threads ? { threads: positiveInteger(threads, 1, "FFMPEG_THREADS") } : {}), ...(logLevel ? { logLevel } : {}) },
   };
 }
 
