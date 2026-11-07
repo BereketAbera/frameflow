@@ -26,5 +26,7 @@ async function main(): Promise<void> {
 
 main().catch((error: unknown) => {
   console.error("Worker failed:", error);
-  process.exitCode = 1;
+  // worker.start() rejects once its action listener gives up reconnecting to Hatchet, but leaves the SDK's heartbeat
+  // thread and health server running, so the process would stay up with nothing listening for tasks. Exit instead.
+  process.exit(1);
 });
