@@ -4,6 +4,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { z } from "zod";
+import { abortError, throwIfAborted } from "./abort.js";
 
 export type VideoMetadata = {
   durationSeconds: number;
@@ -69,16 +70,43 @@ function parseFrameRate(value?: string): number | undefined {
   return Number.isFinite(result) && result > 0 ? result : undefined;
 }
 
+export type RunProcessOptions = {
+  /** Aborting sends SIGTERM, then SIGKILL after killAfterMs; the promise rejects with an AbortError once the child has exited. */
+  signal?: AbortSignal;
+  killAfterMs?: number;
+};
+
 export async function runProcess(
   command: string,
   args: string[],
   log: ProcessLogger = console.log,
+  { signal, killAfterMs = 5_000 }: RunProcessOptions = {},
 ): Promise<string> {
+  throwIfAborted(signal);
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     let stderrBuffer = "";
+    let settled = false;
+    let aborted = false;
+    let killTimer: NodeJS.Timeout | undefined;
+    const onAbort = () => {
+      aborted = true;
+      child.kill("SIGTERM");
+      killTimer = setTimeout(() => child.kill("SIGKILL"), killAfterMs);
+    };
+    // Settles exactly once, after the child is gone, so callers never remove scratch space or release a slot under a running process.
+    const settle = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(killTimer);
+      signal?.removeEventListener("abort", onAbort);
+      if (aborted) reject(abortError(signal));
+      else if (error) reject(error);
+      else resolve(stdout);
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
 
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
@@ -93,19 +121,18 @@ export async function runProcess(
         if (line.trim()) void log(line.trim());
       }
     });
-    child.on("error", (error) => reject(new Error(`Could not start ${command}: ${error.message}`)));
-    child.on("close", (code, signal) => {
+    child.on("error", (error) => settle(new Error(`Could not start ${command}: ${error.message}`)));
+    child.on("close", (code, exitSignal) => {
       if (stderrBuffer.trim()) void log(stderrBuffer.trim());
-      if (code === 0) resolve(stdout);
-      else reject(new Error(`${command} failed (exit ${code ?? "unknown"}, signal ${signal ?? "none"}):\n${stderr.slice(-8000)}`));
+      settle(code === 0 ? undefined : new Error(`${command} failed (exit ${code ?? "unknown"}, signal ${exitSignal ?? "none"}):\n${stderr.slice(-8000)}`));
     });
   });
 }
 
-export async function probeVideo(inputPath: string, log?: ProcessLogger): Promise<VideoMetadata> {
+export async function probeVideo(inputPath: string, log?: ProcessLogger, signal?: AbortSignal): Promise<VideoMetadata> {
   const raw = await runProcess("ffprobe", [
     "-v", "error", "-show_streams", "-show_format", "-of", "json", inputPath,
-  ], log);
+  ], log, { signal });
   let json: unknown;
   try { json = JSON.parse(raw); } catch { throw new Error("ffprobe returned invalid JSON"); }
   const parsed = ffprobeSchema.safeParse(json);
@@ -150,6 +177,7 @@ export async function encodeRendition(options: {
   rendition: RenditionName;
   hasAudio: boolean;
   log?: ProcessLogger;
+  signal?: AbortSignal;
 }): Promise<RenditionResult> {
   const config = renditionConfigs[options.rendition];
   const finalDir = path.join(options.outputRoot, config.name);
@@ -172,7 +200,7 @@ export async function encodeRendition(options: {
   );
 
   try {
-    await runProcess("ffmpeg", args, options.log);
+    await runProcess("ffmpeg", args, options.log, { signal: options.signal });
     const playlist = await stat(path.join(tempDir, "index.m3u8"));
     if (!playlist.isFile() || playlist.size === 0) throw new Error("FFmpeg did not produce a non-empty variant playlist");
     await publishDirectory(tempDir, finalDir);
