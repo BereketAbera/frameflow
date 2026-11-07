@@ -234,7 +234,7 @@ For the retry demonstration, start the API with `FORCE_720P_FAILURE_ONCE=true`. 
 | `API_ORIGIN` | `http://127.0.0.1:4000` | Next.js API rewrite target. Build-time: `next build` bakes it into the rewrites |
 | `NEXT_OUTPUT` | unset | `standalone` at build time emits `.next/standalone/server.js` for container images |
 | `DATABASE_PATH` | `./data/app.db` | Local SQLite projection |
-| `S3_ENDPOINT` | `http://127.0.0.1:9000` | S3-compatible endpoint |
+| `S3_ENDPOINT` | `http://127.0.0.1:9000` | S3-compatible endpoint; empty also means the default. For AWS S3, the regional endpoint |
 | `S3_PUBLIC_ENDPOINT` | unset | Bare public origin that browser upload URLs are signed for; server calls keep using `S3_ENDPOINT` |
 | `S3_REGION` | `us-east-1` | Object-storage region |
 | `S3_BUCKET` | `frameflow` | Private media bucket |
@@ -259,7 +259,7 @@ For the retry demonstration, start the API with `FORCE_720P_FAILURE_ONCE=true`. 
 | `FFMPEG_THREADS` | unset | Passes `-threads N` to every rendition encode |
 | `FFMPEG_LOG_LEVEL` | unset | Adds `-nostats -loglevel <level>`, for example `error`, for quieter worker logs |
 
-For AWS S3, omit `S3_ENDPOINT`, provide the appropriate credentials and region, and normally set `S3_FORCE_PATH_STYLE=false`.
+For AWS S3, set `S3_ENDPOINT` to the regional endpoint, for example `https://s3.eu-west-1.amazonaws.com` with `S3_REGION=eu-west-1`, provide the appropriate credentials, and normally set `S3_FORCE_PATH_STYLE=false`. Leaving `S3_ENDPOINT` out or empty keeps local MinIO at `http://127.0.0.1:9000`.
 
 For one video at a time on a shared server, set `FRAMEFLOW_MAX_CONCURRENT_VIDEOS=1` on the worker. Use `FRAMEFLOW_WORKER_SLOTS` and `MAX_CONCURRENT_ENCODES` to choose whether its 360p and 720p encodes run in parallel. The worker removes leftover `probe-`, `encode-` and `publish-` directories from `WORKER_TEMP_DIR` when it starts, so do not share that directory between running workers.
 

@@ -11,10 +11,12 @@ describe("configuration", () => {
     expect(loadConfig(env({ HOST: "0.0.0.0" })).host).toBe("0.0.0.0");
   });
 
-  it("defaults S3_ENDPOINT only when it is absent", () => {
+  it("defaults S3_ENDPOINT to local MinIO when it is absent or empty", () => {
     expect(loadConfig(env()).s3.endpoint).toBe("http://127.0.0.1:9000");
+    expect(loadConfig(env({ S3_ENDPOINT: "" })).s3.endpoint).toBe("http://127.0.0.1:9000");
+    expect(loadConfig(env({ S3_ENDPOINT: " " })).s3.endpoint).toBe("http://127.0.0.1:9000");
     expect(loadConfig(env({ S3_ENDPOINT: "http://frameflow-minio:9000" })).s3.endpoint).toBe("http://frameflow-minio:9000");
-    expect(loadConfig(env({ S3_ENDPOINT: "" })).s3.endpoint).toBeUndefined();
+    expect(loadConfig(env({ S3_ENDPOINT: "https://s3.eu-west-1.amazonaws.com" })).s3.endpoint).toBe("https://s3.eu-west-1.amazonaws.com");
   });
 
   it("accepts S3_PUBLIC_ENDPOINT only as a bare origin", () => {
