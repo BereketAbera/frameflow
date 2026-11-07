@@ -22,7 +22,8 @@ describe("S3 presigned uploads", () => {
     expect(url.origin).toBe("https://frameflow.bereket.dev");
     expect(url.pathname).toBe(`/frameflow/${key}`);
     expect(url.searchParams.get("X-Amz-Expires")).toBe("600");
-    expect(url.searchParams.get("X-Amz-SignedHeaders")).toBe("host");
+    // The signature covers the Content-Type the browser must send, so storage rejects a PUT of any other type.
+    expect(url.searchParams.get("X-Amz-SignedHeaders")).toBe("content-type;host");
     expect(upload).toMatchObject({ method: "PUT", headers: { "Content-Type": "video/mp4" } });
     expect(storage.presignClient).not.toBe(storage.client);
     expect(await storage.client.config.endpoint?.()).toMatchObject({ protocol: "http:", hostname: "frameflow-minio", port: 9000 });
