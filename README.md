@@ -267,7 +267,7 @@ For one video at a time on a shared server, set `FRAMEFLOW_MAX_CONCURRENT_VIDEOS
 
 ## Container images and deployment
 
-The `Dockerfile` builds two images from one dependency stage, for `linux/amd64` and `linux/arm64`, on `node:24.22.2-trixie-slim` pinned by index digest. Its `# syntax=` line pins the Dockerfile frontend, `docker/dockerfile:1.12.1`, by index digest too. Both final stages run `apt-get upgrade`, so each build takes the Debian security updates published since the base image was last rebuilt, and remove the base image's npm, npx and corepack, which no role runs. Both run as the base image's `node` user (uid 1000) and work with a read-only root filesystem. Neither holds an env file: `.dockerignore` keeps every `.env*` out of the build context, so all settings come from the environment.
+The `Dockerfile` builds two images from one dependency stage, for `linux/amd64` and `linux/arm64`, on `node:24.22.2-trixie-slim` pinned by index digest. Its `# syntax=` line pins the Dockerfile frontend, `docker/dockerfile:1.12.1`, by index digest too. Both final stages run `apt-get upgrade` and remove the base image's npm, npx and corepack, which no role runs. Every CI build starts with no cache from earlier runs, so it takes the Debian security updates published by then, apart from any that would install or remove another package. A local rebuild that reuses its cached upgrade layer takes no newer updates, and `--no-cache` refreshes it. Both images run as the base image's `node` user (uid 1000) and work with a read-only root filesystem. Neither holds an env file: `.dockerignore` keeps every `.env*` out of the build context, so all settings come from the environment.
 
 ```bash
 docker build --target web -t frameflow-web:local .
