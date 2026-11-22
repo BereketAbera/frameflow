@@ -1,5 +1,7 @@
 # Curated AI-film showcase
 
+> The discovery page no longer shows these films. The list and the `featured_videos` table are kept as a record of the selection; nothing in the interface links to them.
+
 The discovery page contains ten finished films from their original public watch pages. Frameflow does not generate, download, or rehost these works. Every card uses public artwork from YouTube or Vimeo, links directly to the complete film, and preserves creator and tool attribution.
 
 ## The ten films

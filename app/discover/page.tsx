@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Heart, Play, Search } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 
 type Video = {
@@ -18,33 +17,8 @@ type Video = {
   createdAt: string;
 };
 
-type Featured = {
-  id: string;
-  title: string;
-  description: string;
-  creator: string;
-  thumbnailUrl: string;
-  tool?: string;
-  sourceUrl: string;
-  tags: string;
-};
-
-function qualityLabel(tags: string): string | null {
-  const normalized = tags.toLowerCase();
-  const signals: Array<[string, string]> = [
-    ["global grand prize", "Global Grand Prize"],
-    ["grand prix", "Grand Prix"],
-    ["gold winner", "Gold winner"],
-    ["silver winner", "Silver winner"],
-    ["honoree", "Festival honoree"],
-    ["landmark", "Landmark film"],
-  ];
-  return signals.find(([tag]) => normalized.includes(tag))?.[1] ?? null;
-}
-
 export default function Discover() {
   const [videos, setVideos] = useState<Video[]>([]);
-  const [featured, setFeatured] = useState<Featured[]>([]);
   const [query, setQuery] = useState("");
 
   useEffect(() => {
@@ -52,7 +26,6 @@ export default function Discover() {
       .then((response) => response.json())
       .then((data) => {
         setVideos(data.videos);
-        setFeatured(data.featured);
       });
   }, []);
 
@@ -79,7 +52,7 @@ export default function Discover() {
               Discover what’s possible.
             </h1>
             <p className="mt-3 text-muted-foreground">
-              Finished AI films selected for craft, story, and visual direction.
+              Videos published on Frameflow.
             </p>
           </div>
           <div className="relative">
@@ -92,61 +65,6 @@ export default function Discover() {
             />
           </div>
         </div>
-
-        {featured.length > 0 && (
-          <section className="mt-14">
-            <div className="mb-5">
-              <h2 className="text-2xl font-semibold">10 exceptional AI films</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Direct from the filmmakers—no generated placeholders or model test clips.
-              </p>
-            </div>
-            <div className="grid gap-x-4 gap-y-8 md:grid-cols-2 lg:grid-cols-4">
-              {featured.map((video) => {
-                const signal = qualityLabel(video.tags);
-                return (
-                  <a
-                    href={video.sourceUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    key={video.id}
-                    className="group"
-                    title={`Watch ${video.title} on its original source`}
-                  >
-                    <div className="relative aspect-video overflow-hidden rounded-xl bg-muted">
-                      <img
-                        src={video.thumbnailUrl}
-                        alt={`${video.title} film thumbnail`}
-                        className="size-full object-cover transition duration-300 group-hover:scale-105"
-                      />
-                      {signal && (
-                        <Badge className="absolute left-3 top-3 z-10 border-white/20 bg-black/70 text-white backdrop-blur">
-                          {signal}
-                        </Badge>
-                      )}
-                      <span className="absolute inset-0 grid place-items-center bg-black/20 opacity-0 transition group-hover:opacity-100">
-                        <span className="grid size-11 place-items-center rounded-full bg-white text-black">
-                          <Play className="size-4 fill-current" />
-                        </span>
-                      </span>
-                    </div>
-                    <div className="mt-3 min-w-0">
-                      <strong className="line-clamp-1 text-sm">{video.title}</strong>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {video.creator} · Original film ↗
-                      </p>
-                      {video.tool && (
-                        <Badge className="mt-2 max-w-full whitespace-normal leading-4">
-                          {video.tool}
-                        </Badge>
-                      )}
-                    </div>
-                  </a>
-                );
-              })}
-            </div>
-          </section>
-        )}
 
         <section className="mt-14">
           <div className="mb-5 flex items-end justify-between">
