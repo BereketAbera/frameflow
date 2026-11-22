@@ -15,7 +15,6 @@ This repository is intentionally local-first: every service can be run and demon
 
 - [Five-minute portfolio walkthrough](docs/portfolio-guide.md)
 - [UI system and component conventions](docs/ui-system.md)
-- [Curated AI-film sourcing notes](docs/curated-ai-videos.md)
 - [Public demo at the edge: Worker, R2 bucket and releases](edge/README.md)
 
 ## What this project demonstrates
@@ -50,7 +49,6 @@ This repository is intentionally local-first: every service can be run and demon
 - Landing page and searchable AI-video discovery feed.
 - Public watch pages with views, likes, saves, comments, tags, and sharing.
 - Saved-video library, playlists, notifications, and creator pages.
-- Ten attributed, externally linked AI-film selections; Frameflow does not rehost the original works.
 
 ## Architecture
 
