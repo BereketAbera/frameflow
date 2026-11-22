@@ -87,7 +87,7 @@ flowchart LR
 - Release files are cached at each Cloudflare location for a year. The active reference is never cached, so a rollback needs no purge.
 - The Worker has one binding, to that bucket, and reads only what a published manifest lists. It has no credentials and no route to the private bucket. Private uploads, private storage and authenticated playback are unchanged and do not pass through it.
 
-The Worker, the publisher and their tests live in [`edge/`](edge/README.md), a separate package that the application does not import. Its configuration is for staging only: a `workers.dev` hostname, with no DNS record and no production deployment.
+The Worker, the publisher and their tests live in [`edge/`](edge/README.md), a separate package that the application does not import. It has a staging and a production Worker, each with its own bucket and each on a `workers.dev` hostname, so neither needs a DNS record.
 
 ### Media flow
 
@@ -114,7 +114,7 @@ Browser
 | Workflow orchestration | Hatchet TypeScript SDK |
 | Media processing | FFmpeg and ffprobe |
 | Object storage | MinIO locally; AWS S3-compatible contract |
-| Public demo delivery | Cloudflare Worker and Cache API in front of a dedicated R2 bucket (staging) |
+| Public demo delivery | Cloudflare Worker and Cache API in front of a dedicated R2 bucket |
 | Local persistence | SQLite |
 | Testing and delivery | Vitest, deterministic E2E smoke test, GitHub Actions |
 
@@ -344,7 +344,7 @@ The production deployment configuration for these images, from the namespace and
 
 - SQLite is intentionally a single-node local persistence choice; a hosted version should use managed Postgres.
 - The FFmpeg semaphore is per worker process rather than distributed; `FRAMEFLOW_MAX_CONCURRENT_VIDEOS` limits whole videos across workers through Hatchet.
-- Stronger content inspection, resumable multipart uploads, CDN delivery of private streams, object lifecycle policies, and distributed admission control remain future work. Only the public demo sample has an edge delivery path, and that path is set up for staging only.
+- Stronger content inspection, resumable multipart uploads, CDN delivery of private streams, object lifecycle policies, and distributed admission control remain future work. Only the public demo sample has an edge delivery path.
 - A Vercel deployment can host the Next.js application, while the Fastify API, Hatchet worker, durable database, and object storage require persistent infrastructure.
 - Chromium desktop and responsive mobile playback are verified locally; production release should add a real iOS Safari device pass.
 
