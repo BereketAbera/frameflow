@@ -33,3 +33,30 @@ jobs:
       - run: npm ci
       - run: npm run verify
       - run: npm audit --audit-level=high
+
+  # The public demo Worker and its release publisher: a separate package with its own lockfile. Nothing here deploys.
+  edge:
+    name: Edge
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: edge
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: edge/package-lock.json
+      # Packaging makes the thumbnail and the preview with FFmpeg, and its tests run the real one.
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: npm ci
+      # Typechecks, bundles the Worker with a wrangler dry run, and tests it in workerd with a local R2 bucket.
+      - run: npm run verify
+      - run: npm audit --audit-level=high
