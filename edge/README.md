@@ -135,6 +135,7 @@ Each response also carries `x-frameflow-colo`, the location that answered, so a 
 - **Rollback needs no purge.** The active reference is never cached, and R2 is strongly consistent, so the next request anywhere sees a promotion or a rollback. Release files never change, so nothing cached can be stale.
 - **A long TTL is a ceiling, not a promise.** A location may evict an object early. The next request there is a `MISS` and reads R2 again.
 - **Browsers cache too.** A release file is immutable for a year, so a browser that has it does not ask again. The player page marks those rows `BROWSER`.
+- **Playlists leave the edge compressed.** For a client that accepts it, Cloudflare compresses the playlists, which are text, on the way out. Such a response has a `content-encoding`, no `Content-Length` of the file's own size, and the weak form of the ETag, `W/"..."`. What the cache holds is unchanged, and `If-None-Match` matches either form. Segments, the thumbnail and the preview go out as they are.
 - **The tiered cache in front of Workers stays off** (`"cache": { "enabled": false }` in `wrangler.jsonc`), so there is exactly one edge cache to reason about, and it is per location.
 
 ### What Cloudflare's edge was seen to do
@@ -149,6 +150,21 @@ Measured on 2026-11-22 at the FRA location, with a temporary probe Worker on the
 | The same stream through `FixedLengthStream(1000)` made the put fail, and nothing was stored | That is the guard the Worker uses |
 | Storing a `206` threw, and storing a `no-store` response stored nothing | Partial and uncacheable responses cannot be put by accident |
 | A stored entry was still a `HIT` after a new version of the Worker was deployed | A deploy does not clear the cache: see `CACHE_EPOCH` below |
+
+### The staging run
+
+On 2026-11-22, against the staging Worker with releases A and B published by the publisher. Every request was answered at the Cloudflare location FRA.
+
+| What was done | What the edge answered |
+| --- | --- |
+| A first request for each of A's 9 files, then a repeat | `MISS`, then `HIT` with `cf-cache-status: HIT`, at the same location, for all 9. The same for B's 9 before B was promoted |
+| A ranged first request on a cold cache | `206` with the right bytes, `MISS`. The next request for the whole file was a `HIT` with the full length and the manifest's checksum |
+| `HEAD`, `If-None-Match`, a range beyond the file, and two ranges at once, on a miss and again on a hit | The same both times: `200` with the full length, `304`, `416` with `no-store`, and `200` with the whole file |
+| `current.json` and `current.m3u8` around a promotion and a rollback | The next request named the new release each time. `no-store`, and never a `cf-cache-status` |
+| Private objects, unlisted objects inside A's prefix, and a release without a manifest, planted with `wrangler` | `404` for `GET` and `HEAD`, also by traversal. None of their content was returned |
+| A deploy with `CACHE_EPOCH` raised, then the committed one again | A cold cache, then the earlier entries again |
+
+The matrix below says which scenarios this covered.
 
 ## Staging
 
@@ -187,27 +203,27 @@ npx wrangler r2 object delete "frameflow-public-demo-staging/public-demo/release
 
 ## Test matrix
 
-`npm test` runs these locally, against the built Worker in workerd, with the publisher writing over the local S3 endpoint and the Worker reading through its R2 binding. The staging column is filled in from a staging run, and stays empty until one has happened.
+`npm test` runs these locally, against the built Worker in workerd, with the publisher writing over the local S3 endpoint and the Worker reading through its R2 binding. The staging column is the run of 2026-11-22 against the staging Worker and its R2 bucket, answered at the Cloudflare location FRA. "Not run" there means the scenario has only been shown locally.
 
 | # | Scenario | Expected | Local | Staging |
 | --- | --- | --- | --- | --- |
-| 1 | Publish A and promote it | A's version URLs serve, `current.json` names A | pass | not run |
-| 2 | Play A: every playlist, segment, thumbnail and preview, whole and from the middle | `200` with the manifest's checksum, `206` with the right bytes | pass | not run |
-| 3 | Failed publish: B's playlist references a missing segment | Refused before any upload. A active and seekable | pass | not run |
+| 1 | Publish A and promote it | A's version URLs serve, `current.json` names A | pass | pass |
+| 2 | Play A: every playlist, segment, thumbnail and preview, whole and from the middle | `200` with the manifest's checksum, `206` with the right bytes | pass | pass |
+| 3 | Failed publish: B's playlist references a missing segment | Refused before any upload. A active and seekable | pass | pass |
 | 4 | Failed publish: a file changed after packaging | Refused before any upload. A active and seekable | pass | not run |
-| 5 | Failed publish: upload interrupted (`--interrupt-after`) | B's objects exist but answer `404`. `promote B` refused. A active and seekable | pass | not run |
+| 5 | Failed publish: upload interrupted (`--interrupt-after`) | B's objects exist but answer `404`. `promote B` refused. A active and seekable | pass | pass |
 | 6 | Failed publish: an object at one of the release's keys is not the release's, or is stored with the wrong type | Not committed, nothing overwritten. A active and seekable. The same content publishes under another label | pass | not run |
-| 7 | Resume B after the interruption | Only the missing objects are uploaded. B serves at its version URLs, A still active | pass | not run |
-| 8 | Promote B | `current.json` names B on the next request, with A's files still cached. No purge | pass | not run |
-| 9 | Roll back to A | `current.json` names A on the next request. B's version URLs still serve | pass | not run |
-| 10 | Promotion that lost a race, or with a wrong `--expect-active` | Nothing written. Two promotions of the same release: one write, no error | pass | not run |
-| 11 | Publish A again, or forge A's ID for other content | Nothing written, refused | pass | not run |
-| 12 | First and repeat request for each file | `MISS`, then `HIT` at the same location | pass (simulated cache) | not run |
-| 13 | Ranged first request | `206`, not stored. The cache then holds the whole object | pass (simulated cache) | not run |
-| 13a | The same range, `HEAD`, `If-None-Match` and `If-Range` requests on a miss and on a hit | The same status, headers and bytes both times | pass (simulated cache) | not run |
-| 14 | Private and unlisted objects planted in the bucket, traversal, other methods, query strings | `404` or `405`, never the object | pass | not run |
+| 7 | Resume B after the interruption | Only the missing objects are uploaded. B serves at its version URLs, A still active | pass | pass |
+| 8 | Promote B | `current.json` names B on the next request, with A's files still cached. No purge | pass | pass |
+| 9 | Roll back to A | `current.json` names A on the next request. B's version URLs still serve | pass | pass |
+| 10 | Promotion that lost a race, or with a wrong `--expect-active` | Nothing written. Two promotions of the same release: one write, no error | pass | pass for a wrong `--expect-active`, and R2 refused a stale `If-Match`. A real race: not run |
+| 11 | Publish A again, or forge A's ID for other content | Nothing written, refused | pass | pass for publishing A again, and R2 refused to create an existing object. A forged ID: not run |
+| 12 | First and repeat request for each file | `MISS`, then `HIT` at the same location | pass (simulated cache) | pass |
+| 13 | Ranged first request | `206`, not stored. The cache then holds the whole object | pass (simulated cache) | pass |
+| 13a | The same range, `HEAD`, `If-None-Match` and `If-Range` requests on a miss and on a hit | The same status, headers and bytes both times | pass (simulated cache) | pass for a range, `HEAD`, `If-None-Match`, a range beyond the file and two ranges at once. `If-Range`: not run |
+| 14 | Private and unlisted objects planted in the bucket, traversal, other methods, query strings | `404` or `405`, never the object | pass | pass |
 | 15 | Object in the bucket differs from the manifest | `502`, not cached | pass | not run |
-| 16 | Real player: play, seek back and forward, hover preview | Plays to the end, seeks land and keep playing, preview plays on hover | pass (Chromium, hls.js 1.7.3, by hand) | not run |
+| 16 | Real player: play, seek back and forward, hover preview | Plays to the end, seeks land and keep playing, preview plays on hover | pass (Chromium, hls.js 1.7.3, by hand) | pass (Chromium, hls.js 1.7.3, by hand) |
 
 ## Operating notes
 
