@@ -80,7 +80,7 @@ async function main(argv: string[]): Promise<number> {
       if (!target) throw new UsageError("publish needs the package directory");
       const interruptAfter = number(values["interrupt-after"], "interrupt-after");
       const result = await publishRelease({ store: interruptAfter === undefined ? store : interrupting(store, interruptAfter), packageDir: path.resolve(target), promote: values.promote, expectActive: expectActive(values["expect-active"]), concurrency: interruptAfter === undefined ? undefined : 1, log });
-      print(result, result.promotion ? `Published and promoted ${result.releaseId}.` : `Published ${result.releaseId}. It is not active: run "promote ${result.releaseId}" to make it so.`);
+      print(result, result.promotion ? `Published and promoted ${result.releaseId}.` : `Published ${result.releaseId}. Publishing does not change the active release: "promote ${result.releaseId}" does.`);
     } else if (command === "promote") {
       if (!target) throw new UsageError("promote needs a release ID");
       const result = await promoteRelease({ store, releaseId: target, expectActive: expectActive(values["expect-active"]), log });
