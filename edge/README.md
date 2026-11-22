@@ -30,7 +30,7 @@ flowchart LR
 | `local/` | Builds the Worker and runs it in the real Workers runtime (workerd) with a local R2 bucket, for the tests and the demo |
 | `scripts/local-demo.ts` | The whole thing on this machine |
 | `scripts/edge-check.ts` | Checks a release through the Worker and records cache behaviour |
-| `wrangler.jsonc` | The staging Worker. There is no production configuration here |
+| `wrangler.jsonc` | The staging Worker at the top level, and production as the named environment `production` |
 
 The bucket is laid out exactly as the URLs are:
 
@@ -200,6 +200,21 @@ npm run edge:check -- --origin https://<worker-host> --package .releases/a --lab
 npx wrangler r2 object delete frameflow-public-demo-staging/private/canary.txt --remote
 npx wrangler r2 object delete "frameflow-public-demo-staging/public-demo/releases/<release-a-id>/unlisted-canary.ts" --remote
 ```
+
+## Production
+
+Production is a second Worker, `frameflow-public-demo`, with a bucket of its own, `frameflow-public-demo`, and a publisher token limited to that bucket. It shares nothing with staging, and it is also reached on a `workers.dev` hostname, so it needs no DNS record. A plain `wrangler deploy` can only reach staging: production takes `--env production`.
+
+```bash
+npx wrangler r2 bucket create frameflow-public-demo
+npm run deploy:production
+npm run release:production -- publish .releases/a --promote --expect-active none   # reads .env.production
+npm run edge:check -- --origin https://<production-worker-host> --package .releases/a --label production
+```
+
+Publish and check a release on staging first, then publish the same package to production: the release ID comes from the content, so it is the same in both.
+
+On 2026-11-23 release A was published there and promoted. The edge check passed 60 of 60 at FRA, with a first request `MISS` and a repeat `HIT` for every file, and in Chromium the page played, seeked, and played the preview on hover. The failed-publish, promotion and rollback scenarios were run on staging only.
 
 ## Test matrix
 

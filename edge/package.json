@@ -14,9 +14,11 @@
     "verify": "npm run typecheck && npm test",
     "release": "tsx src/publisher/cli.ts",
     "release:staging": "tsx --env-file=.env.staging src/publisher/cli.ts",
+    "release:production": "tsx --env-file=.env.production src/publisher/cli.ts",
     "demo:local": "tsx scripts/local-demo.ts",
     "edge:check": "tsx scripts/edge-check.ts",
-    "deploy:staging": "wrangler deploy"
+    "deploy:staging": "wrangler deploy",
+    "deploy:production": "wrangler deploy --env production"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1127.0",

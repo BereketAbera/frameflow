@@ -1,7 +1,8 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  // Staging only. This file defines no production Worker, route, domain or bucket, so there is nothing in it that a
-  // deploy could release to production. The Worker is reached on its workers.dev hostname and needs no DNS record.
+  // The top level is staging: a plain `wrangler deploy` can only ever reach staging. Production is the named
+  // environment at the end and is deployed only with `--env production`. Both are reached on a workers.dev hostname
+  // and need no DNS record.
   "name": "frameflow-public-demo-staging",
   "main": "src/worker/index.ts",
   "compatibility_date": "2026-11-01",
@@ -18,5 +19,14 @@
   // The Worker stores release files with the Cache API, which is local to each Cloudflare location. Workers Caching,
   // the tiered cache in front of a Worker, stays off so that there is exactly one cache to reason about.
   "cache": { "enabled": false },
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  "env": {
+    // Bindings and vars are not inherited by an environment, so production names its own bucket here. It shares
+    // nothing with staging: another Worker, another bucket, and a publisher token of its own.
+    "production": {
+      "name": "frameflow-public-demo",
+      "r2_buckets": [{ "binding": "PUBLIC_DEMO", "bucket_name": "frameflow-public-demo" }],
+      "vars": { "ENVIRONMENT": "production", "CACHE_EPOCH": "1" }
+    }
+  }
 }
