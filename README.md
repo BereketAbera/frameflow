@@ -16,6 +16,7 @@ This repository is intentionally local-first: every service can be run and demon
 - [Five-minute portfolio walkthrough](docs/portfolio-guide.md)
 - [UI system and component conventions](docs/ui-system.md)
 - [Curated AI-film sourcing notes](docs/curated-ai-videos.md)
+- [Public demo at the edge: Worker, R2 bucket and releases](edge/README.md)
 
 ## What this project demonstrates
 
@@ -68,6 +69,26 @@ flowchart LR
 
 Hatchet is the workflow-execution source of truth. SQLite is the product-facing projection used for polling and local queries. Supabase owns identity when configured; Frameflow verifies sessions and applies the user ID to every video lookup and mutation.
 
+### Public demo delivery
+
+One owned sample is also published outside the private pipeline, for anyone to play. A Cloudflare Worker serves it from a dedicated R2 bucket, under `/public-demo/` only.
+
+```mermaid
+flowchart LR
+  Output[Completed 360p/720p<br/>HLS output] --> Publisher[Release publisher]
+  Publisher -->|create-only objects,<br/>conditional active reference| Bucket[(R2 bucket<br/>public demo only)]
+  Viewer[Browser] -->|/public-demo/...| Worker[Cloudflare Worker]
+  Worker -->|reads only what a<br/>release manifest lists| Bucket
+  Worker <-->|immutable release files| Cache[(Edge cache<br/>one per location)]
+```
+
+- A release is an immutable set of files under its own version path: the playlists and segments of a completed output, plus a thumbnail and a short preview that plays on hover.
+- One small object names the active release. Promoting and rolling back are each a single conditional write to it, made only after the release has been validated in the bucket, so a failed publish leaves the previous release active and seekable.
+- Release files are cached at each Cloudflare location for a year. The active reference is never cached, so a rollback needs no purge.
+- The Worker has one binding, to that bucket, and reads only what a published manifest lists. It has no credentials and no route to the private bucket. Private uploads, private storage and authenticated playback are unchanged and do not pass through it.
+
+The Worker, the publisher and their tests live in [`edge/`](edge/README.md), a separate package that the application does not import. Its configuration is for staging only: a `workers.dev` hostname, with no DNS record and no production deployment.
+
 ### Media flow
 
 ```text
@@ -93,6 +114,7 @@ Browser
 | Workflow orchestration | Hatchet TypeScript SDK |
 | Media processing | FFmpeg and ffprobe |
 | Object storage | MinIO locally; AWS S3-compatible contract |
+| Public demo delivery | Cloudflare Worker and Cache API in front of a dedicated R2 bucket (staging) |
 | Local persistence | SQLite |
 | Testing and delivery | Vitest, deterministic E2E smoke test, GitHub Actions |
 
@@ -195,7 +217,7 @@ npm audit
 
 `npm run verify` executes TypeScript validation, the Vitest suite, and a production Next.js build. The current suite covers authentication and cross-user isolation, owner-only access, upload validation and idempotency, private HLS allowlisting, storage readiness, isolated worker scratch space and its startup cleanup, task cancellation of FFmpeg and storage transfers, workflow timeouts and concurrency, bounded staged uploads, master-last publication, reconciliation, cleanup, terminal transitions, curated-film data, and playable FFmpeg output.
 
-The `ci.yml` GitHub Actions workflow runs the same verification, with FFmpeg installed, and a high-severity dependency audit on pushes and pull requests. `images.yml` builds and checks the container images; see [Container images and deployment](#container-images-and-deployment).
+The `ci.yml` GitHub Actions workflow runs the same verification, with FFmpeg installed, and a high-severity dependency audit on pushes and pull requests. Its `edge` job does the same for the public demo package in `edge/`: it typechecks it, bundles the Worker, and tests the Worker and the release publisher in the Workers runtime with a local R2 bucket. `npm run verify` here does not run those tests: run `npm run verify` in `edge/`. `images.yml` builds and checks the container images; see [Container images and deployment](#container-images-and-deployment).
 
 ## Storage and publication
 
@@ -322,7 +344,7 @@ The production deployment configuration for these images, from the namespace and
 
 - SQLite is intentionally a single-node local persistence choice; a hosted version should use managed Postgres.
 - The FFmpeg semaphore is per worker process rather than distributed; `FRAMEFLOW_MAX_CONCURRENT_VIDEOS` limits whole videos across workers through Hatchet.
-- Stronger content inspection, resumable multipart uploads, CDN delivery, object lifecycle policies, and distributed admission control remain future work.
+- Stronger content inspection, resumable multipart uploads, CDN delivery of private streams, object lifecycle policies, and distributed admission control remain future work. Only the public demo sample has an edge delivery path, and that path is set up for staging only.
 - A Vercel deployment can host the Next.js application, while the Fastify API, Hatchet worker, durable database, and object storage require persistent infrastructure.
 - Chromium desktop and responsive mobile playback are verified locally; production release should add a real iOS Safari device pass.
 
