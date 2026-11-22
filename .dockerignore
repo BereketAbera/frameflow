@@ -10,6 +10,7 @@ coverage
 data
 dist
 docs
+edge
 input
 node_modules
 output
@@ -18,6 +19,7 @@ test
 .dockerignore
 Dockerfile
 scripts
+vitest.config.ts
 *.log
 *.md
 .DS_Store
