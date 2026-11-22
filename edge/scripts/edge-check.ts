@@ -24,7 +24,7 @@ const origin = new URL(values.origin).origin;
 const manifest = parseReleaseManifest(await readFile(path.join(values.package, MANIFEST_NAME), "utf8"));
 
 /** Only these response headers are recorded. Nothing that identifies an account, a request or a client. */
-const RECORDED = ["content-type", "content-length", "content-range", "cache-control", "etag", "age", "accept-ranges", "location", "cf-cache-status", "x-frameflow-cache", "x-frameflow-colo", "x-frameflow-release"];
+const RECORDED = ["content-type", "content-length", "content-encoding", "content-range", "cache-control", "etag", "age", "accept-ranges", "location", "cf-cache-status", "x-frameflow-cache", "x-frameflow-colo", "x-frameflow-release"];
 type Observation = { request: string; status: number; headers: Record<string, string>; rayColo: string | null; sha256?: string; bytes?: number };
 type Check = { name: string; passed: boolean; detail: string };
 const observations: Observation[] = [], checks: Check[] = [];
@@ -60,7 +60,11 @@ const summary: Array<{ file: string; first: string; repeat: string; location: st
 for (const file of manifest.files) {
   const target = releaseUrlPath(manifest.id, file.path);
   const first = await observe(target, {}, "first");
-  check(`${file.path}: served complete and correct`, first.status === 200 && first.sha256 === file.sha256 && first.headers["content-length"] === String(file.size), `status ${first.status}, ${first.bytes} bytes`);
+  // Cloudflare compresses text such as playlists on the way out, for a client that accepts it. Such a response has no
+  // Content-Length of the file's own size, so the length is checked on the header only when the body was sent as it is,
+  // and always on the decoded bytes.
+  const sentAsIs = first.headers["content-encoding"] === undefined;
+  check(`${file.path}: served complete and correct`, first.status === 200 && first.sha256 === file.sha256 && first.bytes === file.size && (!sentAsIs || first.headers["content-length"] === String(file.size)), `status ${first.status}, ${first.bytes} bytes, content-length ${first.headers["content-length"] ?? "absent"}, content-encoding ${first.headers["content-encoding"] ?? "none"}`);
   check(`${file.path}: ${file.contentType}, immutable for a year`, first.headers["content-type"] === file.contentType && first.headers["cache-control"] === IMMUTABLE_CACHE_CONTROL, `${first.headers["content-type"]}; ${first.headers["cache-control"]}`);
 
   // The cache is filled just after the first response completes, and the next request may land on another location, so the repeat is retried briefly.
