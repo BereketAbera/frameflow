@@ -28,6 +28,7 @@ h2 { font-size: 12px; margin: 0 0 10px; font-weight: 600; letter-spacing: .08em;
 .card { position: relative; display: block; width: 100%; padding: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #000; cursor: pointer; aspect-ratio: 16 / 9; color: inherit; font: inherit; }
 .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .card img, .card video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.card img:not([src]) { visibility: hidden; }
 .card video { opacity: 0; transition: opacity .15s ease; }
 .card.is-previewing video { opacity: 1; }
 .card .hint { position: absolute; left: 8px; bottom: 8px; font-size: 12px; padding: 2px 8px; border-radius: 6px; background: rgba(0, 0, 0, .7); }
