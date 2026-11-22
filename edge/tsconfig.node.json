@@ -1,0 +1,6 @@
+{
+  // What runs in Node: the publisher, the scripts and the tests. The shared contract is checked in both programs.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": { "lib": ["ES2023", "DOM"], "types": ["node"] },
+  "include": ["src/publisher/**/*.ts", "src/shared/**/*.ts", "local/**/*.ts", "scripts/**/*.ts", "test/**/*.ts", "vitest.config.ts"]
+}

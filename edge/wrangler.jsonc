@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Staging only. This file defines no production Worker, route, domain or bucket, so there is nothing in it that a
+  // deploy could release to production. The Worker is reached on its workers.dev hostname and needs no DNS record.
+  "name": "frameflow-public-demo-staging",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2026-11-01",
+  "workers_dev": true,
+  "preview_urls": false,
+  "send_metrics": false,
+  // The one binding. This Worker has no credentials, no secrets and no route to Frameflow's private storage.
+  "r2_buckets": [{ "binding": "PUBLIC_DEMO", "bucket_name": "frameflow-public-demo-staging" }],
+  "vars": {
+    "ENVIRONMENT": "staging",
+    // Part of every edge cache key. Raise it to abandon everything cached so far. A rollback never needs that.
+    "CACHE_EPOCH": "1"
+  },
+  // The Worker stores release files with the Cache API, which is local to each Cloudflare location. Workers Caching,
+  // the tiered cache in front of a Worker, stays off so that there is exactly one cache to reason about.
+  "cache": { "enabled": false },
+  "observability": { "enabled": true }
+}

@@ -1,0 +1,6 @@
+{
+  // What runs in the Workers runtime. It sees the Workers types and nothing from Node.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": { "lib": ["ES2023"], "types": ["@cloudflare/workers-types"] },
+  "include": ["src/worker/**/*.ts", "src/shared/**/*.ts"]
+}
