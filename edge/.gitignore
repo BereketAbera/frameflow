@@ -1,0 +1,15 @@
+node_modules/
+# Worker bundles built for the tests and for dry runs.
+.build/
+# Local Workers runtime state and wrangler's own cache.
+.wrangler/
+# Release packages are build outputs: they hold media, and the bucket is their home.
+.releases/
+# Evidence captured from a live run. Review it before sharing it.
+.evidence/
+.scratch/
+# Publisher credentials. Only .env.example is tracked.
+.env
+.env.*
+!.env.example
+*.log
