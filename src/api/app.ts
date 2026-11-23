@@ -28,14 +28,44 @@ export function publicVideo(record: VideoRecord) {
     processingCompletedAt: record.processingCompletedAt,
     playerUrl: `/player/${record.id}`,
     ...(record.status === "completed" ? { playbackUrl: `/streams/${record.id}/master.m3u8` } : {}),
+    ...(record.status === "completed" && record.thumbnailObjectKey ? { thumbnailUrl: `/streams/${record.id}/thumbnail.jpg` } : {}),
+    ...(record.status === "completed" && record.previewObjectKey ? { previewUrl: `/streams/${record.id}/preview.mp4` } : {}),
     ...(record.status === "failed" ? { error: { code: record.errorCode ?? "PROCESSING_FAILED", message: record.errorMessage ?? "Video processing failed." } } : {}),
   };
 }
 
+const posterTypes: Record<string, { type: string; key: (record: VideoRecord) => string | null }> = {
+  "thumbnail.jpg": { type: "image/jpeg", key: (record) => record.thumbnailObjectKey },
+  "preview.mp4": { type: "video/mp4", key: (record) => record.previewObjectKey },
+};
+/** Thumbnails and previews are small, and anything larger is not one of ours. */
+const maxPosterBytes = 16 * 1024 * 1024;
+
 function streamKey(record: VideoRecord, relativePath: string): string {
-  const allowed = /^(?:master\.m3u8|(?:360p|720p)\/(?:index\.m3u8|segment-\d{3,}\.ts))$/;
+  const allowed = /^(?:master\.m3u8|(?:360p|720p|1080p)\/(?:index\.m3u8|segment-\d{3,}\.ts))$/;
   if (!record.outputPrefix || !allowed.test(relativePath)) throw new ApiError(400, "INVALID_STREAM_PATH", "Invalid stream path.");
   return `${record.outputPrefix}/${relativePath}`;
+}
+
+async function readAll(stream: NodeJS.ReadableStream, limit: number): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of stream) {
+    const buffer = Buffer.from(chunk as Uint8Array);
+    if ((size += buffer.length) > limit) throw new Error("Object is larger than expected");
+    chunks.push(buffer);
+  }
+  return Buffer.concat(chunks);
+}
+
+/** One satisfiable byte range of a body of this size, null for a request without a usable Range header, or "unsatisfiable". */
+export function singleRange(header: string | undefined, size: number): { start: number; end: number } | null | "unsatisfiable" {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header?.trim() ?? "");
+  if (!match || (match[1] === "" && match[2] === "")) return null;
+  const start = match[1] === "" ? Math.max(size - Number(match[2]), 0) : Number(match[1]);
+  const end = match[1] === "" || match[2] === "" ? size - 1 : Math.min(Number(match[2]), size - 1);
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || (match[1] === "" && Number(match[2]) === 0) || start >= size || start > end) return "unsatisfiable";
+  return { start, end };
 }
 
 export async function buildApp({ config, submitter, storage, authVerifier, logger = false }: AppDependencies): Promise<FastifyInstance> {
@@ -199,11 +229,26 @@ export async function buildApp({ config, submitter, storage, authVerifier, logge
     const access = record ? social.detail(record.id,user?.id) as { visibility: string } | null : null;
     if (!record || !access) throw new ApiError(404, "VIDEO_NOT_FOUND", "Video not found.");
     if (record.status !== "completed") throw new ApiError(404, "STREAM_NOT_READY", "The stream is not available yet.");
+    const cacheFor = (immutable: boolean) => access.visibility === "public" ? (immutable ? "public,max-age=31536000,immutable" : "public,max-age=60") : "private,no-store";
+    const poster = posterTypes[request.params["*"]];
+    if (poster) {
+      // Safari only plays a video it can fetch by byte range, and these files are small, so they are served from memory with range support.
+      const posterKey = poster.key(record);
+      if (!posterKey) throw new ApiError(404, "STREAM_FILE_NOT_FOUND", "Stream file not found.");
+      let body: Buffer, etag: string | undefined;
+      try { const object = await storage.getObjectStream(posterKey); etag = object.etag; body = await readAll(object.stream, maxPosterBytes); }
+      catch { throw new ApiError(404, "STREAM_FILE_NOT_FOUND", "Stream file not found."); }
+      reply.type(poster.type).header("cache-control", cacheFor(true)).header("accept-ranges", "bytes").header("access-control-allow-origin", "*");
+      if (etag) reply.header("etag", etag);
+      const range = singleRange(request.headers.range, body.length);
+      if (range === "unsatisfiable") return reply.status(416).header("content-range", `bytes */${body.length}`).send();
+      if (range) return reply.status(206).header("content-range", `bytes ${range.start}-${range.end}/${body.length}`).send(body.subarray(range.start, range.end + 1));
+      return reply.send(body);
+    }
     const key = streamKey(record, request.params["*"]);
     try {
       const object = await storage.getObjectStream(key);
-      const cacheControl = access.visibility === "public" ? (key.endsWith(".ts") ? "public,max-age=31536000,immutable" : "public,max-age=60") : "private,no-store";
-      reply.type(key.endsWith(".m3u8") ? "application/vnd.apple.mpegurl" : "video/mp2t").header("cache-control", cacheControl).header("access-control-allow-origin", "*");
+      reply.type(key.endsWith(".m3u8") ? "application/vnd.apple.mpegurl" : "video/mp2t").header("cache-control", cacheFor(key.endsWith(".ts"))).header("access-control-allow-origin", "*");
       if (object.etag) reply.header("etag", object.etag);
       return reply.send(object.stream);
     } catch {
@@ -211,10 +256,17 @@ export async function buildApp({ config, submitter, storage, authVerifier, logge
     }
   });
 
-  app.post<{ Params: { id: string; event: string }; Body: { masterPlaylistObjectKey?: string; code?: string; message?: string } }>("/internal/videos/:id/:event", async (request) => {
+  app.post<{ Params: { id: string; event: string }; Body: { masterPlaylistObjectKey?: string; thumbnailObjectKey?: string; previewObjectKey?: string; code?: string; message?: string } }>("/internal/videos/:id/:event", async (request) => {
     if (request.headers["x-worker-secret"] !== config.workerCallbackSecret) throw new ApiError(403, "FORBIDDEN", "Forbidden.");
     if (request.params.event === "processing") return publicVideo(repository.markProcessing(request.params.id));
-    if (request.params.event === "completed") return publicVideo(repository.markObjectCompleted(request.params.id, request.body.masterPlaylistObjectKey!));
+    if (request.params.event === "completed") {
+      // Only the key the workflow publishes to is accepted, so a callback cannot point a video's card at another object.
+      const prefix = repository.require(request.params.id).outputPrefix;
+      const own = (key: string | undefined, name: string) => (prefix && key === `${prefix}/${name}` ? key : undefined);
+      return publicVideo(repository.markObjectCompleted(request.params.id, request.body.masterPlaylistObjectKey!, {
+        thumbnailObjectKey: own(request.body.thumbnailObjectKey, "thumbnail.jpg"), previewObjectKey: own(request.body.previewObjectKey, "preview.mp4"),
+      }));
+    }
     if (request.params.event === "failed") return publicVideo(repository.markFailed(request.params.id, request.body.code ?? "PROCESSING_FAILED", request.body.message ?? "Video processing failed."));
     throw new ApiError(400, "INVALID_EVENT", "Invalid event.");
   });

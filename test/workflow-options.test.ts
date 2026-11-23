@@ -31,6 +31,7 @@ describe("phase-3 workflow options", () => {
     const { timeouts } = await phase3();
     expect(timeouts).toEqual({
       "validate-object": ["2m", "12h"], "probe-object": ["15m", "12h"], "encode-360p": ["30m", "12h"], "encode-720p": ["30m", "12h"],
+      "encode-1080p": ["45m", "12h"], "make-thumbnail": ["10m", "12h"], "make-preview": ["15m", "12h"],
       publish: ["15m", "12h"], complete: ["2m", "12h"], fail: ["2m", "12h"],
     });
     expect(Object.values((await phase3({ FRAMEFLOW_SCHEDULE_TIMEOUT: "1h30m" })).timeouts).every(([, schedule]) => schedule === "1h30m")).toBe(true);
@@ -46,5 +47,12 @@ describe("phase-3 workflow options", () => {
     expect(definition.concurrency).toEqual([{ expression: "'frameflow'", maxRuns: 1, limitStrategy: ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN }]);
     // The SDK registers an array as the workflow's concurrencyArr (a single object would use the deprecated concurrency field).
     expect(mapConcurrencyPb(definition.concurrency as Concurrency[])).toEqual([{ expression: "'frameflow'", maxRuns: 1, limitStrategy: 3 }]);
+  });
+
+  it("runs the 1080p encode, the thumbnail and the preview as their own tasks beside the other encodes", async () => {
+    const { definition } = await phase3();
+    const parents = Object.fromEntries(definition._tasks.map((task) => [task.name, (task.parents ?? []).map((parent) => parent.name).sort()]));
+    for (const name of ["encode-360p", "encode-720p", "encode-1080p", "make-thumbnail", "make-preview"]) expect(parents[name]).toEqual(["probe-object"]);
+    expect(parents.publish).toEqual(["encode-1080p", "encode-360p", "encode-720p", "make-preview", "make-thumbnail"]);
   });
 });
