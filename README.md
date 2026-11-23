@@ -20,7 +20,7 @@ This repository is intentionally local-first: every service can be run and demon
 ## What this project demonstrates
 
 - **Product engineering:** responsive landing, discovery, studio, library, profiles, activity, publishing, and watch experiences built with Next.js 16, React 19, TypeScript, Tailwind CSS v4, and repository-owned shadcn/ui-style components.
-- **Media engineering:** ffprobe validation, bounded parallel 360p/720p FFmpeg transcodes, master-last HLS publication, and Video.js 10 playback with Auto/manual quality selection.
+- **Media engineering:** ffprobe validation, bounded parallel 360p/720p/1080p FFmpeg transcodes, a thumbnail and a hover preview per video, master-last HLS publication, and Video.js 10 playback with Auto/manual quality selection.
 - **Distributed workflows:** Hatchet coordinates probing, fan-out transcoding, retry-safe publication, failures, and signed status callbacks.
 - **Secure service design:** presigned direct uploads, private object storage, owner-scoped records, allowlisted stream paths, authenticated callbacks, and optional Supabase sessions.
 - **Operational thinking:** health/readiness checks, reconciliation, abandoned-upload expiry, staging cleanup, isolated worker scratch space, idempotency, and deterministic end-to-end verification.
@@ -39,10 +39,10 @@ This repository is intentionally local-first: every service can be run and demon
 ### Adaptive video pipeline
 
 - Short-lived presigned uploads keep media bytes off the API server.
-- Hatchet fans out independent 360p and 720p FFmpeg work.
+- Hatchet fans out independent FFmpeg tasks: 360p, 720p, 1080p (only for a source of at least 1920x1080, so nothing is upscaled), a thumbnail and a 4-second muted preview that plays when a card is hovered. A video still publishes if its thumbnail or preview cannot be made.
 - Each worker run uses an isolated scratch directory and object keys only.
 - Renditions publish before the master playlist, preventing incomplete streams.
-- Video.js 10 uses the official hls.js adapter and exposes Auto, 360p, and 720p selection when the manifest supports them.
+- Video.js 10 uses the official hls.js adapter and exposes Auto, 360p, 720p, and 1080p selection when the manifest supports them.
 
 ### Discovery and community
 
@@ -94,7 +94,7 @@ Browser
   -> API creates upload record and presigned URL
   -> Browser uploads MP4 directly to private object storage
   -> API validates object size and submits Hatchet workflow
-  -> Worker probes source and transcodes 360p + 720p in parallel
+  -> Worker probes source, then in parallel transcodes 360p + 720p (+ 1080p) and makes the thumbnail and preview
   -> Worker stages renditions, publishes them, then publishes master.m3u8
   -> API projects terminal state and serves allowlisted HLS objects
   -> Video.js plays the adaptive stream through the hls.js adapter
@@ -221,8 +221,10 @@ The `ci.yml` GitHub Actions workflow runs the same verification, with FFmpeg ins
 
 ```text
 videos/{videoId}/source/source.mp4
-videos/{videoId}/staging/{workflowRunId}/{360p|720p}/...
-videos/{videoId}/published/{360p|720p}/...
+videos/{videoId}/staging/{workflowRunId}/{360p|720p|1080p}/...
+videos/{videoId}/published/{360p|720p|1080p}/...
+videos/{videoId}/published/thumbnail.jpg
+videos/{videoId}/published/preview.mp4
 videos/{videoId}/published/master.m3u8
 ```
 
@@ -281,7 +283,7 @@ For the retry demonstration, start the API with `FORCE_720P_FAILURE_ONCE=true`. 
 
 For AWS S3, set `S3_ENDPOINT` to the regional endpoint, for example `https://s3.eu-west-1.amazonaws.com` with `S3_REGION=eu-west-1`, provide the appropriate credentials, and normally set `S3_FORCE_PATH_STYLE=false`. Leaving `S3_ENDPOINT` out or empty keeps local MinIO at `http://127.0.0.1:9000`.
 
-For one video at a time on a shared server, set `FRAMEFLOW_MAX_CONCURRENT_VIDEOS=1` on the worker. Its 360p and 720p encodes still run in parallel on the default two slots. To encode one rendition at a time, set `FRAMEFLOW_WORKER_SLOTS=1`: the second encode then waits in Hatchet's queue, where `FRAMEFLOW_SCHEDULE_TIMEOUT` applies. Do not lower `MAX_CONCURRENT_ENCODES` for that, and keep it at least `FRAMEFLOW_WORKER_SLOTS`. An encode that waits for that FFmpeg limit has already started in Hatchet, so the wait counts against its 30-minute execution timeout, and a long wait can time it out and spend one of its retries. The worker logs a warning at startup when `FRAMEFLOW_WORKER_SLOTS` is the larger. The worker removes leftover `probe-`, `encode-` and `publish-` directories from `WORKER_TEMP_DIR` when it starts, so do not share that directory between running workers.
+For one video at a time on a shared server, set `FRAMEFLOW_MAX_CONCURRENT_VIDEOS=1` on the worker. Its encodes still run in parallel on the default two slots. To encode one rendition at a time, set `FRAMEFLOW_WORKER_SLOTS=1`: the second encode then waits in Hatchet's queue, where `FRAMEFLOW_SCHEDULE_TIMEOUT` applies. Do not lower `MAX_CONCURRENT_ENCODES` for that, and keep it at least `FRAMEFLOW_WORKER_SLOTS`. An encode that waits for that FFmpeg limit has already started in Hatchet, so the wait counts against its 30-minute execution timeout, and a long wait can time it out and spend one of its retries. The worker logs a warning at startup when `FRAMEFLOW_WORKER_SLOTS` is the larger. The worker removes leftover `probe-`, `encode-` and `publish-` directories from `WORKER_TEMP_DIR` when it starts, so do not share that directory between running workers.
 
 `next build` with `NEXT_OUTPUT=standalone` copies the project's `.env` into `.next/standalone`. Build images from a context that excludes `.env`, as the repository's `.dockerignore` does.
 

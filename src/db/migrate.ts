@@ -25,6 +25,7 @@ export async function migrateDatabase(databasePath: string): Promise<void> {
       { version: 5, file: "005_featured_ai_videos.sql" },
       { version: 6, file: "006_restore_private_defaults.sql" },
       { version: 7, file: "007_upgrade_curated_ai_films.sql" },
+      { version: 8, file: "008_video_posters.sql" },
     ];
     const applied = database.prepare("SELECT 1 FROM schema_migrations WHERE version = ?");
     for (const migration of migrations) {

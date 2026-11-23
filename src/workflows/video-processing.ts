@@ -3,7 +3,7 @@ import path from "node:path";
 import { z } from "zod";
 import { hatchet } from "../hatchet-client.js";
 import { loadWorkerConfig } from "../config.js";
-import { encodeRendition, generateMasterPlaylist, probeVideo } from "../services/ffmpeg.js";
+import { encodeRendition, generateMasterPlaylist, probeVideo, type RenditionName } from "../services/ffmpeg.js";
 import { encodingSemaphore } from "../services/encoding-semaphore.js";
 import { markWorkflowCompleted, markWorkflowFailed, markWorkflowProcessing } from "../services/status-projection.js";
 
@@ -21,7 +21,7 @@ export type VideoProcessingResult = {
   videoId: string;
   status: "completed";
   masterPlaylistPath: string;
-  renditions: Array<{ name: "360p" | "720p"; playlistPath: string }>;
+  renditions: Array<{ name: RenditionName; playlistPath: string }>;
 };
 
 const inputSchema = z.object({

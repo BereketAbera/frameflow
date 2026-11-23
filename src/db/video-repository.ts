@@ -19,6 +19,7 @@ export type VideoRecord = {
   uploadStatus: "pending" | "uploaded" | "expired"; uploadExpiresAt: string | null;
   sourceEtag: string | null; sourceSizeBytes: number | null; declaredSizeBytes: number | null;
   userId: string | null;
+  thumbnailObjectKey: string | null; previewObjectKey: string | null;
 };
 
 type VideoRow = {
@@ -26,12 +27,12 @@ type VideoRow = {
   hatchet_run_id: string | null; master_playlist_path: string | null;
   error_code: string | null; error_message: string | null; created_at: string; updated_at: string;
   processing_started_at: string | null; processing_completed_at: string | null;
-  source_object_key:string|null;output_prefix:string|null;master_playlist_object_key:string|null;upload_status:"pending"|"uploaded"|"expired";upload_expires_at:string|null;source_etag:string|null;source_size_bytes:number|null;declared_size_bytes:number|null;user_id:string|null;
+  source_object_key:string|null;output_prefix:string|null;master_playlist_object_key:string|null;upload_status:"pending"|"uploaded"|"expired";upload_expires_at:string|null;source_etag:string|null;source_size_bytes:number|null;declared_size_bytes:number|null;user_id:string|null;thumbnail_object_key:string|null;preview_object_key:string|null;
 };
 
 const columns = `id, original_filename, source_path, status, hatchet_run_id, master_playlist_path,
   error_code, error_message, created_at, updated_at, processing_started_at, processing_completed_at,
-  source_object_key, output_prefix, master_playlist_object_key, upload_status, upload_expires_at, source_etag, source_size_bytes, declared_size_bytes, user_id`;
+  source_object_key, output_prefix, master_playlist_object_key, upload_status, upload_expires_at, source_etag, source_size_bytes, declared_size_bytes, user_id, thumbnail_object_key, preview_object_key`;
 
 function mapRow(row: VideoRow): VideoRecord {
   return {
@@ -42,7 +43,7 @@ function mapRow(row: VideoRow): VideoRecord {
     processingCompletedAt: row.processing_completed_at,
     sourceObjectKey:row.source_object_key,outputPrefix:row.output_prefix,masterPlaylistObjectKey:row.master_playlist_object_key,
     uploadStatus:row.upload_status,uploadExpiresAt:row.upload_expires_at,sourceEtag:row.source_etag,sourceSizeBytes:row.source_size_bytes,declaredSizeBytes:row.declared_size_bytes,
-    userId: row.user_id,
+    userId: row.user_id, thumbnailObjectKey: row.thumbnail_object_key, previewObjectKey: row.preview_object_key,
   };
 }
 
@@ -148,7 +149,7 @@ export class VideoRepository {
     });
   }
 
-  markObjectCompleted(id:string,masterKey:string):VideoRecord{const r=this.markCompleted(id,"");if(r.status!=="completed")return r;this.database.prepare("UPDATE videos SET master_playlist_object_key=?,master_playlist_path=NULL WHERE id=?").run(masterKey,id);return this.require(id);}
+  markObjectCompleted(id:string,masterKey:string,posters:{thumbnailObjectKey?:string;previewObjectKey?:string}={}):VideoRecord{const r=this.markCompleted(id,"");if(r.status!=="completed")return r;this.database.prepare("UPDATE videos SET master_playlist_object_key=?,master_playlist_path=NULL,thumbnail_object_key=?,preview_object_key=? WHERE id=?").run(masterKey,posters.thumbnailObjectKey??null,posters.previewObjectKey??null,id);return this.require(id);}
 
   markFailed(id: string, errorCode: string, errorMessage: string): VideoRecord {
     const existing = this.require(id);

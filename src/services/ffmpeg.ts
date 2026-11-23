@@ -16,7 +16,7 @@ export type VideoMetadata = {
   hasAudio: boolean;
 };
 
-export type RenditionName = "360p" | "720p";
+export type RenditionName = "360p" | "720p" | "1080p";
 
 export type RenditionResult = {
   name: RenditionName;
@@ -46,7 +46,16 @@ const renditionConfigs: Record<RenditionName, RenditionConfig> = {
     name: "720p", width: 1280, height: 720, videoBitrate: "2800k",
     maxRate: "2996k", bufferSize: "4200k", audioBitrate: "128k", bandwidth: 3_220_800,
   },
+  "1080p": {
+    name: "1080p", width: 1920, height: 1080, videoBitrate: "5000k",
+    maxRate: "5350k", bufferSize: "7500k", audioBitrate: "192k", bandwidth: 5_711_200,
+  },
 };
+
+/** 1080p is only made from a source that already has that many pixels, so nothing is upscaled. */
+export function supports1080p(metadata: Pick<VideoMetadata, "width" | "height">): boolean {
+  return metadata.width >= 1920 && metadata.height >= 1080;
+}
 
 const ffprobeSchema = z.object({
   format: z.object({ duration: z.string().optional() }).passthrough(),
@@ -261,4 +270,54 @@ export async function generateMasterPlaylist(
 
 export async function readPlaylist(playlistPath: string): Promise<string> {
   return readFile(playlistPath, "utf8");
+}
+
+/** The still shown on a video's card, and the short muted clip that plays when the card is hovered. */
+export const POSTER_FILES = { thumbnail: "thumbnail.jpg", preview: "preview.mp4" } as const;
+export type PosterKind = keyof typeof POSTER_FILES;
+const posterFilter = "scale=640:360:force_original_aspect_ratio=decrease,pad=640:360:(ow-iw)/2:(oh-ih)/2";
+export const PREVIEW_SECONDS = 4;
+
+/** A quarter of the way in, which skips the black frames and title cards many videos open with. The preview starts there too. */
+export function posterStartSeconds(durationSeconds: number, lengthSeconds = 0.5): number {
+  return Math.max(Math.min(durationSeconds / 4, durationSeconds - lengthSeconds), 0);
+}
+
+export function thumbnailArgs(options: { inputPath: string; outputPath: string; atSeconds: number } & EncodeSettings): string[] {
+  const args = ["-hide_banner"];
+  if (options.logLevel) args.push("-nostats", "-loglevel", options.logLevel);
+  // -ss before -i seeks by keyframe, so only a few frames of even a long source are decoded.
+  args.push("-y", "-ss", options.atSeconds.toFixed(3), "-i", options.inputPath, "-map", "0:v:0", "-frames:v", "1", "-vf", posterFilter, "-q:v", "3", "-map_metadata", "-1");
+  if (options.threads) args.push("-threads", String(options.threads));
+  args.push("-f", "image2", "-update", "1", options.outputPath);
+  return args;
+}
+
+export function previewArgs(options: { inputPath: string; outputPath: string; startSeconds: number; lengthSeconds: number } & EncodeSettings): string[] {
+  const args = ["-hide_banner"];
+  if (options.logLevel) args.push("-nostats", "-loglevel", options.logLevel);
+  // It plays muted on hover, so it carries no audio, and +faststart lets it begin before it has fully downloaded.
+  args.push(
+    "-y", "-ss", options.startSeconds.toFixed(3), "-i", options.inputPath, "-t", options.lengthSeconds.toFixed(3), "-map", "0:v:0", "-an",
+    "-vf", posterFilter, "-c:v", "libx264", "-profile:v", "main", "-preset", "veryfast", "-crf", "30", "-pix_fmt", "yuv420p",
+  );
+  if (options.threads) args.push("-threads", String(options.threads));
+  args.push("-movflags", "+faststart", "-map_metadata", "-1", "-f", "mp4", options.outputPath);
+  return args;
+}
+
+async function requireOutput(outputPath: string, what: string): Promise<void> {
+  const info = await stat(outputPath).catch(() => undefined);
+  if (!info?.isFile() || info.size === 0) throw new Error(`FFmpeg did not produce ${what}`);
+}
+
+export async function extractThumbnail(options: { inputPath: string; outputPath: string; durationSeconds: number; log?: ProcessLogger; signal?: AbortSignal } & EncodeSettings): Promise<void> {
+  await runProcess("ffmpeg", thumbnailArgs({ ...options, atSeconds: posterStartSeconds(options.durationSeconds) }), options.log, { signal: options.signal });
+  await requireOutput(options.outputPath, "a thumbnail");
+}
+
+export async function encodePreview(options: { inputPath: string; outputPath: string; durationSeconds: number; log?: ProcessLogger; signal?: AbortSignal } & EncodeSettings): Promise<void> {
+  const lengthSeconds = Math.min(PREVIEW_SECONDS, options.durationSeconds);
+  await runProcess("ffmpeg", previewArgs({ ...options, startSeconds: posterStartSeconds(options.durationSeconds, lengthSeconds), lengthSeconds }), options.log, { signal: options.signal });
+  await requireOutput(options.outputPath, "a preview");
 }

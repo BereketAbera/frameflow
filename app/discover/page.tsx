@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Heart, Play, Search } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
 import { Input } from "@/components/ui/input";
+import { VideoPoster } from "@/components/video-poster";
 
 type Video = {
   id: string;
@@ -15,6 +16,8 @@ type Video = {
   viewCount: number;
   likes: number;
   createdAt: string;
+  thumbnailUrl?: string | null;
+  previewUrl?: string | null;
 };
 
 export default function Discover() {
@@ -74,19 +77,22 @@ export default function Discover() {
           <div className="grid gap-x-5 gap-y-8 sm:grid-cols-2 lg:grid-cols-3">
             {shown.map((video, index) => (
               <Link href={`/watch/${video.id}`} key={video.id} className="group">
-                <div
-                  className={`relative aspect-video overflow-hidden rounded-xl bg-gradient-to-br ${
+                <VideoPoster
+                  thumbnailUrl={video.thumbnailUrl}
+                  previewUrl={video.previewUrl}
+                  title={video.title}
+                  fallbackClassName={`bg-gradient-to-br ${
                     index % 2
                       ? "from-violet-950 via-fuchsia-700 to-orange-400"
                       : "from-slate-950 via-cyan-800 to-emerald-300"
                   }`}
                 >
-                  <span className="absolute inset-0 grid place-items-center">
+                  {!video.previewUrl && <span className="pointer-events-none absolute inset-0 grid place-items-center">
                     <span className="grid size-12 place-items-center rounded-full bg-white/90 text-black opacity-0 shadow-lg transition group-hover:opacity-100">
                       <Play className="size-4 fill-current" />
                     </span>
-                  </span>
-                </div>
+                  </span>}
+                </VideoPoster>
                 <h3 className="mt-3 line-clamp-1 font-semibold">{video.title}</h3>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {video.creator || "Frameflow creator"} · {video.viewCount} views
